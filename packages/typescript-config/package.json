@@ -1,0 +1,12 @@
+{
+	"name": "@tools/typescript-config",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./base": "./base.json",
+		"./base.json": "./base.json"
+	},
+	"files": [
+		"base.json"
+	]
+}
