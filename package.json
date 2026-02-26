@@ -1,0 +1,12 @@
+{
+  "name": "@zacharytamas/agent-tools",
+  "module": "src/index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "turbo": "^2.8.11"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
