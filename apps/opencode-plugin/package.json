@@ -1,0 +1,12 @@
+{
+  "name": "@zacharytamas/agent-tools-opencode",
+  "version": "0.1.0",
+  "description": "My agent tools in an OpenCode native plugin format.",
+  "private": false,
+  "devDependencies": {
+    "@tools/typescript-config": "workspace:*"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.15"
+  }
+}
