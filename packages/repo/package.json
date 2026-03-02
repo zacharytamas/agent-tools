@@ -1,22 +1,25 @@
 {
-	"name": "@tools/repo",
-	"private": true,
-	"type": "module",
-	"exports": {
-		".": {
-			"types": "./src/index.ts",
-			"default": "./dist/index.js"
-		}
-	},
-	"scripts": {
-		"build": "tsc -p tsconfig.json",
-		"check-types": "tsc -p tsconfig.json --noEmit"
-	},
-	"devDependencies": {
-		"@effect/language-service": "^0.77.0",
-		"@tools/typescript-config": "workspace:*"
-	},
-	"dependencies": {
-		"effect": "^3.19.19"
-	}
+  "name": "@tools/repo",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.77.0",
+    "@tools/typescript-config": "workspace:*"
+  },
+  "dependencies": {
+    "@effect/platform": "^0.94.5",
+    "@effect/platform-node": "^0.104.1",
+    "effect": "^3.19.19"
+  }
 }
