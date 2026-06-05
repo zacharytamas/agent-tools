@@ -59,3 +59,38 @@ Example combinations:
 While the intention of this design is to be as implementation-agnostic as possible, the following sections include some desired implementation details to provide context for the design decisions.
 
 ### Data Model
+
+The minimum useful entry shape should be intentionally small. A slog entry must be cheap to create, but still carry enough structure for later trust, sorting, triage, and summarization.
+
+Required v1 fields:
+
+- `id`: stable unique identifier for the entry.
+- `created_at`: timestamp for when the entry was recorded.
+- `text`: the human-readable content of the entry.
+- `actor`: the immediate writer of the entry.
+- `authority.source`: the person, agent, system, or external source whose authority made the entry worth recording.
+- `authority.mode`: how that authority was applied.
+- `needs_triage`: whether the entry requires later classification, cleanup, routing, or review.
+
+The initial design should avoid prematurely committing to detailed shapes for adjacent concepts such as scopes, tags, links, metadata, projects, tasks, or summaries. Those concepts are likely important, but their schemas need separate pressure-testing. If included in an early implementation, they should be represented in an amendable way that does not force irreversible semantics into the foundation.
+
+`needs_triage` is part of the core rather than an optional add-on because triage is a fundamental operating mode of the system. The slog should allow fast capture without forcing perfect classification at write time, while still making ambiguity visible and recoverable later.
+
+`needs_triage` means the entry was intentionally captured but is not yet operationally settled. Triage may be needed because the entry requires classification, clarification, trust review, action extraction, or routing into another system. It does not mean the entry is invalid or unimportant; it means the entry was captured under some form of uncertainty.
+
+Triage state must not be derived solely from authority. Authority describes why the entry should be treated as meaningful; triage describes whether the entry is settled enough for normal recall and summarization. A direct human-authored entry can still need triage if it was intentionally captured quickly or ambiguously for later cleanup. Conversely, some non-human-authority entries may be settled enough not to require triage.
+
+The initial `needs_triage` value should be computed by the CLI from central policy rather than left entirely to each caller or adapter. Callers may express intent, but the CLI remains responsible for applying guardrails consistently across harnesses.
+
+Default triage policy should be based primarily on `authority.mode`:
+
+| Authority mode | Default triage state | Rationale |
+| --- | --- | --- |
+| `direct` | `needs_triage=false` | The authority source directly authored the entry, so it is normally settled unless intentionally marked otherwise. |
+| `delegated` | `needs_triage=false` | The authority source explicitly instructed another actor to write the entry, so it carries explicit intent. |
+| `discretionary` | `needs_triage=true` | The actor decided the entry may be useful without explicit instruction, so it should not silently bypass review by default. |
+| `observed` | `needs_triage=false` or policy-defined | Concrete external observations may be settled if the observing integration is trusted and the event shape is narrow. |
+| `imported` | `needs_triage=true` or policy-defined | Bulk imported context is likely noisy and may require filtering or routing before normal use. |
+| `derived` | policy-defined | Generated synthesis may be settled if source-backed, but should not outrank its source entries. |
+
+Creation should support explicit triage intent. A caller should be able to force `needs_triage=true` for fast, ambiguous, or intentionally unresolved capture. Forcing `needs_triage=false` should be guarded: it should be allowed for direct or delegated authority, allowed for configured trusted integrations, or require an explicit sharp-edged override. Arbitrary discretionary agent-created entries should not be allowed to silently create settled entries by default.
