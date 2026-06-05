@@ -35,6 +35,18 @@ Initial authority modes:
 - `imported`: the entry was brought in from another system.
 - `derived`: the entry was generated from other slog entries.
 
+Identity fields such as `actor` and `authority.source` should be stable non-empty strings. The system should enforce basic string hygiene rather than a namespaced identity schema: trim and reject empty values, reject control characters, and reject leading or trailing whitespace. It should not require a structured identity object or enforce identity namespaces in v1.
+
+Recommended identity conventions:
+
+- Humans use simple stable names, such as `zachary`.
+- Harness agents use `<harness>:<agent-name>`, such as `hermes:hightower`.
+- External systems use `external:<system>`, such as `external:github`.
+- Hooks and imports may use operational identities such as `github-hook` or `github-import`.
+- Derived generators may use tool identities such as `slog-summary`.
+
+These are conventions, not validation rules. Authority mode carries the trust semantics; identity strings provide provenance and filtering handles.
+
 This distinction is intentionally part of the foundation. It allows later filtering, sorting, and summarization behavior to treat entries differently. For example, daily report generation should preserve the wording and specificity of direct or delegated human-authority entries more closely, while summarizing or generalizing discretionary agent-authored observations more aggressively.
 
 Example combinations:
@@ -139,7 +151,11 @@ Machine create validation should require:
 - non-empty stable identity strings for `actor` and `authority.source`
 - `authority.mode` to be one of the known authority modes
 - `occurred_at`, if present, to be an ISO 8601 timestamp with an explicit offset
-- `needs_triage=false`, if requested, to pass the central triage guardrails for the supplied authority mode and actor/integration trust policy
+- `needs_triage=false`, if requested, to pass the central v1 triage guardrails
+
+V1 triage guardrails should be hardcoded rather than configurable. As a transitional policy, only `direct` and `delegated` authority modes may create settled entries with `needs_triage=false`. All other authority modes should default to `needs_triage=true` and remain triaged even if the caller requests `needs_triage=false`.
+
+If a caller requests `needs_triage=false` for `discretionary`, `observed`, `imported`, or `derived`, machine create should persist the entry with `needs_triage=true` and return a warning rather than rejecting the write. This keeps ingestion robust while preventing non-human-authorized entries from silently bypassing review.
 
 Successful machine create should return the persisted current state of the entry, not merely an acknowledgement. The response should include the generated `id`, generated `created_at`, final `needs_triage` value after policy, and any other persisted fields.
 
@@ -180,7 +196,7 @@ If central policy adjusts caller intent, the command should still return the per
   "warnings": [
     {
       "code": "needs_triage_forced",
-      "message": "Discretionary entries cannot be created as settled by this actor."
+      "message": "Only direct and delegated entries may be created as settled."
     }
   ]
 }
