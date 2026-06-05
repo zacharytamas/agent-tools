@@ -372,7 +372,11 @@ V1 filters should include:
 - `actor`
 - `authority.source`
 - `authority.mode`
-- text search over `text`
+- simple text search over `text`
+
+V1 text search should be intentionally basic. `slog search <query>` should perform a case-insensitive substring search over entry `text` only. It should not support regex syntax, fuzzy matching, stemming, ranking, or indexed full-text search. Search should default to the same bounded date behavior as `slog list`, likely today, unless a date range or `--all` is supplied.
+
+Searching is not expected to be important in the first version. The primary v1 recall path is listing entries, usually one day at a time. Search exists as a small convenience over the current JSONL partitions, not as a separate search product.
 
 Scope, tag, link, project, task, and summary filters should be deferred until those concepts have canonical shapes.
 
@@ -499,6 +503,16 @@ V1 deletion doctrine:
 - V1 should not add tombstones, `deleted_at`, soft-delete filtering, or deletion audit records.
 
 ### Non-goals for this design
+
+This establishment design should not include prose report generation or LLM-backed summarization.
+
+Reporting and summarization are downstream consumers of the core entry model. V1 should make entries queryable enough that agents or later commands can build daily reports externally, but slog itself should not include LLM summarization, prose daily-update generation, or report-format policy in the foundation.
+
+The v1 report substrate is the machine read/query surface, especially bounded `slog entry list --json` calls over a date range. A future design may define dedicated report commands, summarization rules, source weighting, or daily update formats once the core entry model and query contract are stable.
+
+This establishment design should also exclude scope, tags, links, project references, task references, and generic metadata from the v1 core entry model.
+
+Those concepts are expected future design areas, but adding them prematurely would create durable schema commitments without enough pressure-testing. V1 should not include a generic `metadata` escape hatch because it would become an unstructured dumping ground for adapter-specific shapes. Machine callers should encode essential context in `text` until a future design defines canonical structures for references, classification, or routing.
 
 ## Implementation
 
