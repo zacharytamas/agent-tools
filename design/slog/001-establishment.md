@@ -10,7 +10,7 @@ An entry is the canonical domain unit: the thing a human, agent, automation, or 
 
 The CLI is the product foundation. It is not primarily a Hermes feature, an OpenCode feature, or a feature of any other agent harness. Harness-specific integrations should behave as thin translation layers over the same CLI calls so that entries created from different environments share the same underlying log, conventions, and user experience.
 
-A slog should answer: what happened, who or what recorded it, on whose authority it was recorded, when it happened, what area of work it belongs to, what follow-up it implies, and how it can be summarized or queried later.
+A slog should answer: what happened, who or what recorded it, on whose authority it was recorded, when it happened, and how it can be queried later. Adjacent questions such as area of work, follow-up, references, and summarization are important future design areas, but they should not expand the v1 core schema.
 
 ### Authority and provenance
 
@@ -84,7 +84,7 @@ slog add "Reviewed Spencer's PR"
 slog add --triage "Ask Laila about tenant fallback"
 slog list
 slog triage
-slog show <id>
+slog show <full-ulid>
 ```
 
 Machine-facing commands should optimize for explicit structured input and stable output, such as:
@@ -93,7 +93,7 @@ Machine-facing commands should optimize for explicit structured input and stable
 slog entry create --json '{...}'
 slog entry update --json '{...}'
 slog entry list --json
-slog entry show <id> --json
+slog entry show <full-ulid> --json
 ```
 
 Harness integrations must not parse human-oriented CLI output. Hermes, OpenCode, hooks, imports, and future adapters should use JSON-native machine commands so the human CLI remains free to improve its display without breaking integrations.
@@ -370,7 +370,7 @@ Human-facing read commands should include:
 slog list
 slog today
 slog triage
-slog show <id>
+slog show <full-ulid>
 slog search <query>
 ```
 
@@ -378,7 +378,7 @@ Machine-facing read commands should provide JSON-native output and explicit filt
 
 ```sh
 slog entry list --json
-slog entry show <id> --json
+slog entry show <full-ulid> --json
 ```
 
 V1 filters should include:
@@ -586,6 +586,47 @@ Implementation guidelines:
 - Keep the human CLI and machine JSON contract separate in both tests and implementation.
 - Commit focused, working increments using the repository's existing commit-message style.
 
+Effect-specific guidance:
+
+- Model entries, authority modes, command inputs, and machine envelopes with `Schema` so parsing and validation produce typed domain values rather than loose objects.
+- Use branded string types for important identifiers such as entry IDs and identity strings when doing so improves boundary safety without adding ceremony to the CLI contract.
+- Represent domain and infrastructure failures as tagged errors that can be translated into the stable machine error envelope at the command boundary.
+- Define Effect services for filesystem/storage, config, clock, ID generation, environment access, and console/process output. Service methods should return Effects and keep dependencies in layers rather than method signatures.
+- Use `Effect.fn` for named service operations where tracing would clarify command execution or storage failures.
+- Provide layers once at the CLI entrypoint; avoid scattering `Effect.provide` through domain or command logic.
+- Use `@effect/platform-bun` services for the live CLI runtime where practical.
+- Test Effect code with `@effect/vitest` and test layers. Use deterministic test services for clock, ID generation, filesystem roots, and environment values.
+- Keep pure domain validation separate from live layers so basic schema and triage-policy tests can run without touching the filesystem.
+
+Implementation layout guidance:
+
+The initial implementation should use a flat, seam-oriented module layout rather than a deeply nested architecture. The exact file names may evolve, but the first pass should keep concerns separated along these lines:
+
+```text
+src/
+  cli.ts
+  domain.ts
+  config.ts
+  environment.ts
+  storage.ts
+  machine.ts
+  human.ts
+  commands.ts
+```
+
+Suggested responsibilities:
+
+- `cli.ts`: thin entrypoint that parses arguments, dispatches commands, wires live layers, and runs the Effect program.
+- `domain.ts`: pure schemas, branded types, authority modes, triage guardrails, input validation, and domain errors.
+- `config.ts`: slog home resolution, optional `config.toml` loading, local user identity resolution, and config validation.
+- `environment.ts`: service definitions or live helpers for clock, ID generation, OS username, environment variables, and process IO.
+- `storage.ts`: JSONL repository, daily partition paths, full-ULID lookup, atomic rewrites, and file locking.
+- `machine.ts`: machine JSON input parsing, success envelopes, error envelopes, and machine output rendering.
+- `human.ts`: human list/show formatting, confirmation prompts, and other human-readable rendering.
+- `commands.ts`: command handlers that orchestrate domain, storage, config, and output seams.
+
+Command parsing should stay thin. Domain validation should remain pure. Storage should stay behind a repository/service seam. Modules may be split later when real size or cohesion pressure justifies it, but the v1 implementation should avoid a premature folder hierarchy.
+
 Suggested implementation phases:
 
 1. **Core storage and human recall loop**
@@ -661,7 +702,7 @@ Because the implementation is expected to use TypeScript with Effect, ID generat
 
 The minimum useful entry shape should be intentionally small. A slog entry must be cheap to create, but still carry enough structure for later trust, sorting, triage, and summarization.
 
-Required v1 fields:
+Core v1 fields:
 
 - `id`: stable unique identifier for the entry.
 - `created_at`: timestamp for when the entry was recorded.
@@ -672,7 +713,7 @@ Required v1 fields:
 - `authority.mode`: how that authority was applied.
 - `needs_triage`: whether the entry requires later classification, cleanup, routing, or review.
 
-The initial design should avoid prematurely committing to detailed shapes for adjacent concepts such as scopes, tags, links, metadata, projects, tasks, or summaries. Those concepts are likely important, but their schemas need separate pressure-testing. If included in an early implementation, they should be represented in an amendable way that does not force irreversible semantics into the foundation.
+The initial design should avoid prematurely committing to detailed shapes for adjacent concepts such as scopes, tags, links, metadata, projects, tasks, or summaries. Those concepts are likely important, but their schemas need separate pressure-testing. They should not be included in the v1 core entry model.
 
 `needs_triage` is part of the core rather than an optional add-on because triage is a fundamental operating mode of the system. The slog should allow fast capture without forcing perfect classification at write time, while still making ambiguity visible and recoverable later.
 
@@ -689,8 +730,8 @@ Default triage policy should be based primarily on `authority.mode`:
 | `direct` | `needs_triage=false` | The authority source directly authored the entry, so it is normally settled unless intentionally marked otherwise. |
 | `delegated` | `needs_triage=false` | The authority source explicitly instructed another actor to write the entry, so it carries explicit intent. |
 | `discretionary` | `needs_triage=true` | The actor decided the entry may be useful without explicit instruction, so it should not silently bypass review by default. |
-| `observed` | `needs_triage=false` or policy-defined | Concrete external observations may be settled if the observing integration is trusted and the event shape is narrow. |
-| `imported` | `needs_triage=true` or policy-defined | Bulk imported context is likely noisy and may require filtering or routing before normal use. |
-| `derived` | policy-defined | Generated synthesis may be settled if source-backed, but should not outrank its source entries. |
+| `observed` | `needs_triage=true` | External observations may be factual, but v1 has no trust-policy configuration and should not let them silently bypass review. |
+| `imported` | `needs_triage=true` | Bulk imported context is likely noisy and may require filtering or routing before normal use. |
+| `derived` | `needs_triage=true` | Generated synthesis should not outrank or silently settle itself ahead of its source entries. |
 
-Creation should support explicit triage intent. A caller should be able to force `needs_triage=true` for fast, ambiguous, or intentionally unresolved capture. Forcing `needs_triage=false` should be guarded: it should be allowed for direct or delegated authority, allowed for configured trusted integrations, or require an explicit sharp-edged override. Arbitrary discretionary agent-created entries should not be allowed to silently create settled entries by default.
+Creation should support explicit triage intent. A caller should be able to force `needs_triage=true` for fast, ambiguous, or intentionally unresolved capture. Forcing `needs_triage=false` should be guarded by the hardcoded v1 policy: only `direct` and `delegated` entries may be created as settled. If a caller requests `needs_triage=false` for `discretionary`, `observed`, `imported`, or `derived`, the CLI should persist the entry as `needs_triage=true` and return a warning rather than rejecting ingestion.
