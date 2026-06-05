@@ -538,6 +538,51 @@ The slog home may be overridden with `SLOG_HOME`. V1 does not need a separate `-
 
 Project-local slog homes should not be the default because they would fragment the personal/work operational journal. They may be supported later through explicit `SLOG_HOME` usage or a separate project-log design.
 
+### Incremental implementation approach
+
+The first implementation should proceed in small, test-driven vertical slices. This section is guidance for implementation order, not a complete task backlog. Each slice should be chosen from the current code state, implemented with a focused failing test first, and committed as a logical unit after verification.
+
+Implementation guidelines:
+
+- Use TypeScript with Effect.
+- Use Bun for package management, scripts, and tests according to this repository's conventions.
+- Use strict TDD: one failing behavior test, minimal implementation, refactor, then repeat.
+- Prefer small vertical slices over horizontal scaffolding or a prewritten full test backlog.
+- Keep storage behind a narrow repository/service seam so JSONL can be replaced later without changing command contracts.
+- Keep clock, ID generation, filesystem, and process environment access behind testable seams.
+- Encode product invariants directly rather than turning them into premature configuration knobs.
+- Keep the human CLI and machine JSON contract separate in both tests and implementation.
+- Commit focused, working increments using the repository's existing commit-message style.
+
+Suggested implementation phases:
+
+1. **Core storage and human recall loop**
+   - Establish `SLOG_HOME` resolution and default `~/.slog` layout.
+   - Generate ULID IDs and system-local ISO 8601 timestamps through injectable services.
+   - Write daily JSONL current-state records.
+   - Implement human `slog add`, `slog list`, and `slog show <full-ulid>`.
+   - Verify full-ULID lookup by decoding the ULID timestamp to the expected daily partition.
+
+2. **Machine create/list/show contract**
+   - Implement `slog entry create --json <payload-or->`.
+   - Implement machine success and error envelopes.
+   - Enforce explicit machine provenance and reject caller-supplied `id` or `created_at`.
+   - Implement `slog entry list --json` and `slog entry show <full-ulid> --json` with bounded defaults.
+
+3. **Mutation and triage**
+   - Implement machine patch-style update for `text`, `occurred_at`, and `needs_triage`.
+   - Implement human `slog edit` inline flags for `text` and `occurred_at`.
+   - Implement `slog triage`, `slog triage --all`, `slog triage resolve <full-ulid>`, and `slog triage reopen <full-ulid>`.
+   - Harden atomic daily-partition rewrites and file locking.
+
+4. **Deletion, search, and polish**
+   - Implement human hard delete with confirmation and full-ULID lookup.
+   - Implement simple case-insensitive substring `slog search` over `text`.
+   - Polish human output formatting.
+   - Add edge-case tests for malformed JSON, invalid timestamps, invalid authority modes, forbidden fields, not-found IDs, and concurrent writes where practical.
+
+The phases should not introduce deferred concepts such as reports, scopes, tags, links, generic metadata, prefix IDs, configurable timezones, `$EDITOR` workflows, soft deletes, mutation history, or machine delete.
+
 ### Persistence Model
 
 The v1 source of truth should be newline-delimited JSON (JSONL) current-state records.
