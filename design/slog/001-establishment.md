@@ -378,6 +378,17 @@ Scope, tag, link, project, task, and summary filters should be deferred until th
 
 Human `slog list` should default to a bounded view, likely today's entries in reverse chronological order. Machine `slog entry list --json` should also default to a bounded date range unless an explicit broader range or `--all` is supplied. `slog triage` should list unresolved entries, likely bounded to today by default with an explicit `--all` option.
 
+Human `slog list` should use a simple single-line display that always includes local time, the full ULID, and entry text. The only v1 status marker should be `TRIAGE` when `needs_triage=true`. Provenance markers such as agent/delegated/observed should not appear in the default list; those details belong in `slog show`, verbose output, or machine JSON.
+
+Example:
+
+```text
+2026-06-05
+
+14:52  01JY8E7MZKZ7R2N94R9Y3CZ5QX  Reviewed Spencer's PR
+14:55  TRIAGE  01JY8E8K2B8V8F3F6Q0M1N2P3R  Ask Laila about that config thing
+```
+
 V1 should require full ULIDs everywhere. Human and machine commands should both store, emit, and accept full IDs only. Prefix matching is intentionally out of scope for v1 because it would require either archive scans, an index/cache, or additional bounded-lookup semantics that are not necessary for the foundation.
 
 Because records are stored in daily JSONL partitions, commands that address an entry by ID still need an efficient way to find the owning partition. ULIDs encode their creation timestamp in the first 48 bits, so an implementation can decode the timestamp from a full ULID in O(1), convert that instant into the system local timezone, and inspect the corresponding daily partition first.
@@ -433,6 +444,44 @@ slog triage reopen <full-ulid>
 `reopen` sets `needs_triage=true`, returning the entry to the triage queue.
 
 Editing entry text should use the normal edit/update path rather than triage-specific behavior.
+
+### Human show output
+
+Human `slog show <full-ulid>` should display all core fields in a readable detail view. It should include:
+
+- full ID
+- `created_at`
+- `occurred_at`, only when present
+- `actor`
+- `authority.source` and `authority.mode`
+- `needs_triage`
+- entry text
+
+The metadata block should be separated from the entry text by a blank line.
+
+Example:
+
+```text
+ID:        01JY8E7MZKZ7R2N94R9Y3CZ5QX
+Created:   2026-06-05T14:52:00-04:00
+Occurred:  2026-06-05T10:42:00-04:00
+Actor:     zachary
+Authority: zachary / direct
+Triage:    no
+
+Reviewed Spencer's PR and left feedback on deployment checks.
+```
+
+If `occurred_at` is absent, the `Occurred` line should be omitted rather than displayed empty.
+
+The machine equivalent, `slog entry show <full-ulid> --json`, should return the same stable success envelope used by machine create and update:
+
+```json
+{
+  "entry": { "...": "..." },
+  "warnings": []
+}
+```
 
 ### Deletion
 
