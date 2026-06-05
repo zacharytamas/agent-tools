@@ -148,12 +148,25 @@ Stored records should keep the full ULID. Human-facing and machine-facing comman
 
 IDs must be stable and independent of storage location so entries can survive repartitioning, export, import, or backend migration. The ID is an identity, not the semantic source of time truth. Even though ULIDs are time-sortable, `created_at` remains the authoritative timestamp for when the entry was recorded. Future concepts such as backfilled imports or `occurred_at` should not be constrained by the ULID timestamp.
 
+#### Entry timestamps
+
+`created_at` is required and records when the entry was written into slog. `occurred_at` is optional and records when the described thing happened, if known and materially different from the creation time.
+
+If `occurred_at` is omitted, consumers may treat it as equivalent to `created_at` for ordinary ordering and reporting. Human `slog add` commands normally only set `created_at`. Hooks, imports, and backfill flows should set `occurred_at` when an external system provides a reliable event time or when the user is explicitly recording something that happened earlier.
+
+Timestamps should be stored as ISO 8601 strings with explicit offsets, such as `2026-06-05T13:08:00-04:00`. The slog is day/report oriented, so daily partitions and date-based queries should use the configured slog timezone rather than UTC day boundaries. The default timezone should be the system local timezone, with room for a later config override such as `timezone = "America/New_York"`.
+
+Implementations should parse timestamps into instants for comparison and sorting, but preserve offset-bearing ISO strings in records and machine JSON. The stored timestamp should remain human-inspectable while still being unambiguous.
+
+Because the implementation is expected to use TypeScript with Effect, ID generation should sit behind a small service boundary rather than being called directly throughout the domain. Production can use ULID generation while tests can provide deterministic IDs.
+
 The minimum useful entry shape should be intentionally small. A slog entry must be cheap to create, but still carry enough structure for later trust, sorting, triage, and summarization.
 
 Required v1 fields:
 
 - `id`: stable unique identifier for the entry.
 - `created_at`: timestamp for when the entry was recorded.
+- `occurred_at`: optional timestamp for when the described thing happened, if known and materially different from when it was recorded.
 - `text`: the human-readable content of the entry.
 - `actor`: the immediate writer of the entry.
 - `authority.source`: the person, agent, system, or external source whose authority made the entry worth recording.
