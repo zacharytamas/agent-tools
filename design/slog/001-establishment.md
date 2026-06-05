@@ -90,6 +90,29 @@ Machine writers should provide `actor` and `authority` explicitly on create. Int
 
 Human UX commands may use local defaults because their operating context is narrower and interactive. Machine contracts should favor explicit provenance over convenience.
 
+### Human entry creation defaults
+
+Human `slog add` should infer safe local defaults rather than requiring the user to provide provenance on every write.
+
+For v1, `slog add "..."` should create an entry with:
+
+- `actor`: the configured local user identity, falling back to the OS username if no local user is configured.
+- `authority.source`: the same value as `actor`.
+- `authority.mode`: `direct`.
+- `needs_triage`: `false`, unless the user passes an explicit triage flag.
+- `created_at`: the current time in the system local timezone.
+- `occurred_at`: omitted unless the user explicitly provides it.
+
+Examples:
+
+```sh
+slog add "Reviewed Spencer's PR"
+slog add --triage "Ask Laila about that config thing"
+slog add --occurred-at "2026-06-05T10:42:00-04:00" "Merged PR #123 this morning"
+```
+
+Human `slog add` should not expose casual actor or authority override flags in v1. If a caller needs non-default provenance, it should use the JSON-native machine creation command.
+
 ### Read and query surface
 
 V1 read/query operations should be limited to fields that are part of the core entry model.
@@ -126,12 +149,12 @@ Human `slog list` should default to a bounded view, likely today's entries in re
 
 V1 should require full ULIDs everywhere. Human and machine commands should both store, emit, and accept full IDs only. Prefix matching is intentionally out of scope for v1 because it would require either archive scans, an index/cache, or additional bounded-lookup semantics that are not necessary for the foundation.
 
-Because records are stored in daily JSONL partitions, commands that address an entry by ID still need an efficient way to find the owning partition. ULIDs encode their creation timestamp in the first 48 bits, so an implementation can decode the timestamp from a full ULID in O(1), convert that instant into the configured slog timezone, and inspect the corresponding daily partition first.
+Because records are stored in daily JSONL partitions, commands that address an entry by ID still need an efficient way to find the owning partition. ULIDs encode their creation timestamp in the first 48 bits, so an implementation can decode the timestamp from a full ULID in O(1), convert that instant into the system local timezone, and inspect the corresponding daily partition first.
 
 V1 lookup by ID should therefore:
 
 1. Require a syntactically valid full ULID.
-2. Decode the ULID timestamp to derive the expected daily partition in the configured slog timezone.
+2. Decode the ULID timestamp to derive the expected daily partition in the system local timezone.
 3. Load that daily partition and search for the full ID.
 4. Report not found if the record is absent from the expected partition.
 
@@ -259,7 +282,7 @@ IDs must be stable and independent of storage location so entries can survive re
 
 If `occurred_at` is omitted, consumers may treat it as equivalent to `created_at` for ordinary ordering and reporting. Human `slog add` commands normally only set `created_at`. Hooks, imports, and backfill flows should set `occurred_at` when an external system provides a reliable event time or when the user is explicitly recording something that happened earlier.
 
-Timestamps should be stored as ISO 8601 strings with explicit offsets, such as `2026-06-05T13:08:00-04:00`. The slog is day/report oriented, so daily partitions and date-based queries should use the configured slog timezone rather than UTC day boundaries. The default timezone should be the system local timezone, with room for a later config override such as `timezone = "America/New_York"`.
+Timestamps should be stored as ISO 8601 strings with explicit offsets, such as `2026-06-05T13:08:00-04:00`. The slog is day/report oriented, so daily partitions and date-based queries should use the system local timezone rather than UTC day boundaries. V1 should not introduce a configurable timezone; a timezone override can be considered later if real use demands it.
 
 Implementations should parse timestamps into instants for comparison and sorting, but preserve offset-bearing ISO strings in records and machine JSON. The stored timestamp should remain human-inspectable while still being unambiguous.
 
