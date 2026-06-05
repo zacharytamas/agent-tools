@@ -96,6 +96,28 @@ Human UX commands may use local defaults because their operating context is narr
 
 While the intention of this design is to be as implementation-agnostic as possible, the following sections include some desired implementation details to provide context for the design decisions.
 
+### Persistence Model
+
+The v1 source of truth should be newline-delimited JSON (JSONL) current-state records.
+
+Although YAML daily files would be more hand-readable and produce more pleasant git diffs, the design should optimize for the path most likely to be used in practice: operating through the CLI and machine integrations. JSONL is simpler to implement, append, parse, validate, stream, and recover than YAML, and it better matches the JSON-native machine contract. Human-readable storage can be revisited later if real usage shows that hand-editing or git-diff review matters more than expected.
+
+The initial persistence model should be deliberately swappable. The CLI and machine API should expose entries, not storage files, so a future implementation can migrate from JSONL to YAML, SQLite, or a hybrid model without changing harness integrations.
+
+V1 storage doctrine:
+
+- Store records as JSONL.
+- Partition records into daily files.
+- Treat each line as the current-state record for one entry.
+- Store each entry exactly once in its owning daily partition.
+- Update entries by rewriting the relevant daily partition file atomically.
+- Use file locking around writes to avoid concurrent write corruption.
+- Keep machine input/output JSON-native regardless of storage details.
+- Prefer implementation simplicity over speculative hand-editability.
+- Do not introduce append-only mutation history, last-write-wins reduction, or compaction in v1.
+- Leave room for a future rebuildable SQLite index/cache if query performance requires it.
+- Leave room for YAML export or an alternate persistence backend if human file review becomes important.
+
 ### Data Model
 
 The minimum useful entry shape should be intentionally small. A slog entry must be cheap to create, but still carry enough structure for later trust, sorting, triage, and summarization.
