@@ -256,6 +256,57 @@ Example not-found error:
 
 Machine commands should return exactly one JSON object on success or failure. Human commands may render friendlier text, but machine commands should preserve the stable envelope.
 
+### Machine entry update contract
+
+Machine entry update should use a patch-style object with an `id` and a `changes` object.
+
+Example:
+
+```json
+{
+  "id": "01J...",
+  "changes": {
+    "text": "Ask Laila about tenant config fallback.",
+    "occurred_at": "2026-06-05T10:42:00-04:00",
+    "needs_triage": false
+  }
+}
+```
+
+Machine update validation should require:
+
+- `id` to be present and to be a syntactically valid full ULID.
+- `changes` to be present and to be a non-empty object.
+- `changes` to contain only fields mutable in normal v1 operation: `text`, `occurred_at`, and `needs_triage`.
+- `text`, if present, to be non-empty after trimming.
+- `occurred_at`, if present, to be an ISO 8601 timestamp with an explicit offset.
+- `needs_triage`, if present, to be a boolean.
+
+Machine update should reject immutable fields such as `id`, `created_at`, `actor`, `authority.source`, or `authority.mode` if they appear inside `changes`. It should also reject unknown fields rather than silently ignoring them.
+
+Successful machine update should return the persisted current state of the updated entry using the same success envelope as machine create:
+
+```json
+{
+  "entry": {
+    "id": "01J...",
+    "created_at": "2026-06-05T14:54:00-04:00",
+    "text": "Ask Laila about tenant config fallback.",
+    "actor": "zachary",
+    "authority": {
+      "source": "zachary",
+      "mode": "direct"
+    },
+    "needs_triage": false
+  },
+  "warnings": []
+}
+```
+
+The update operation should locate the entry by full ULID, apply allowed changes, rewrite the relevant daily JSONL partition atomically, and return structured errors using the machine error envelope when validation fails or the entry is not found.
+
+### Machine JSON input
+
 Machine commands that accept structured input should support `--json <payload-or->`:
 
 ```sh
