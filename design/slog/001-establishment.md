@@ -137,6 +137,43 @@ V1 lookup by ID should therefore:
 
 This lookup strategy relies on the v1 invariant that newly created slog entries use ULIDs generated at record creation time and are stored in the daily partition corresponding to `created_at`. Future backfill/import designs that create entries for historical `occurred_at` values should still generate IDs at insertion time and partition by `created_at`, or they must introduce an explicit index/backreference design before violating that invariant.
 
+### Mutation surface
+
+V1 mutation should be limited to settling and correcting entry content, not rewriting provenance.
+
+Mutable fields in normal operation:
+
+- `text`
+- `occurred_at`
+- `needs_triage`
+
+Immutable fields in normal operation:
+
+- `id`
+- `created_at`
+- `actor`
+- `authority.source`
+- `authority.mode`
+
+`actor` and `authority` are provenance fields. They should not be casually editable through ordinary human UX commands or normal machine update calls. If a provenance mistake must be corrected later, that should be handled by an explicit repair/admin design rather than hidden inside generic update behavior.
+
+The v1 update operation should rewrite the relevant daily JSONL partition atomically after applying allowed field changes.
+
+### Deletion
+
+V1 should support hard delete through the human UX, but should not expose ordinary machine/API delete by default.
+
+This is a personal/work operational journal rather than a regulated audit ledger. If a user accidentally records something sensitive, wrong, or unwanted, they should be able to remove it without carrying soft-delete complexity in the core schema.
+
+V1 deletion doctrine:
+
+- Human UX may provide `slog delete <full-ulid>`.
+- Deletion requires a full ULID.
+- Deletion should require confirmation unless an explicit sharp-edged flag such as `--yes` is supplied.
+- Deletion rewrites the relevant daily JSONL partition atomically.
+- Machine-facing delete is deferred or reserved for a later explicit admin/repair design.
+- V1 should not add tombstones, `deleted_at`, soft-delete filtering, or deletion audit records.
+
 ### Non-goals for this design
 
 ## Implementation
