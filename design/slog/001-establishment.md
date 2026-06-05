@@ -96,6 +96,26 @@ Human UX commands may use local defaults because their operating context is narr
 
 While the intention of this design is to be as implementation-agnostic as possible, the following sections include some desired implementation details to provide context for the design decisions.
 
+### File Layout
+
+The default slog home should be `~/.slog`.
+
+```text
+~/.slog/
+  config.toml
+  entries/
+    2026/
+      06/
+        05.jsonl
+  locks/
+```
+
+The default should be shared across harnesses so entries created from a shell, Hermes, OpenCode, hooks, or other adapters land in the same underlying journal unless explicitly isolated.
+
+The slog home may be overridden with `SLOG_HOME`. V1 does not need a separate `--home` flag; an environment variable is enough for tests, temporary runs, alternate stores, and adapter-level isolation without adding another precedence surface.
+
+Project-local slog homes should not be the default because they would fragment the personal/work operational journal. They may be supported later through explicit `SLOG_HOME` usage or a separate project-log design.
+
 ### Persistence Model
 
 The v1 source of truth should be newline-delimited JSON (JSONL) current-state records.
