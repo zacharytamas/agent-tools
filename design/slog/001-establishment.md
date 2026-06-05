@@ -554,6 +554,22 @@ The slog home may be overridden with `SLOG_HOME`. V1 does not need a separate `-
 
 Project-local slog homes should not be the default because they would fragment the personal/work operational journal. They may be supported later through explicit `SLOG_HOME` usage or a separate project-log design.
 
+### Configuration
+
+V1 should support an optional `config.toml` in the slog home.
+
+```toml
+user = "zachary"
+```
+
+The only v1 configuration field should be `user`, which supplies the local human identity used by human UX commands such as `slog add`. If `config.toml` is missing, human commands should fall back to the OS username. If `config.toml` is present, `user` must be a non-empty string; invalid config should fail clearly rather than silently falling back.
+
+Because the implementation is expected to use Bun, TOML does not add a dependency burden: Bun has built-in TOML import/parsing support. The design should still keep the config surface intentionally tiny.
+
+V1 config should not include timezone, profiles, trust policy, adapter defaults, storage backend selection, or report preferences. Those may become future design areas, but they should not be smuggled into the establishment design as speculative knobs.
+
+V1 should not require or include `slog init`. Commands should lazily create the slog home and required subdirectories when they first need them. The optional `config.toml` may be created manually by the user if they want to override the OS username. A future `init` command may improve onboarding, but it should not be necessary for normal operation or part of the v1 foundation.
+
 ### Incremental implementation approach
 
 The first implementation should proceed in small, test-driven vertical slices. This section is guidance for implementation order, not a complete task backlog. Each slice should be chosen from the current code state, implemented with a focused failing test first, and committed as a logical unit after verification.
