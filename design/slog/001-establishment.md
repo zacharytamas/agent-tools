@@ -305,6 +305,26 @@ Successful machine update should return the persisted current state of the updat
 
 The update operation should locate the entry by full ULID, apply allowed changes, rewrite the relevant daily JSONL partition atomically, and return structured errors using the machine error envelope when validation fails or the entry is not found.
 
+### Human edit workflow
+
+Human edit should remain scriptable and explicit in v1. The best-class experience for correcting or refining entries is expected to come through an agent adapter using the machine update contract. The direct human CLI should still be usable for scripting and simple manual corrections, but it should not grow an editor-driven workflow in v1.
+
+V1 human edit commands should use inline flags:
+
+```sh
+slog edit <full-ulid> --text "Ask Laila about tenant config fallback."
+slog edit <full-ulid> --occurred-at "2026-06-05T10:42:00-04:00"
+```
+
+Human `slog edit` should not open `$EDITOR` in v1. `$EDITOR` support adds interactive failure modes, testing complexity, and UX surface area that are not necessary for the foundation and may never be needed if agents provide the primary high-quality editing experience.
+
+Triage state should remain under the triage workflow rather than being duplicated as edit flags:
+
+```sh
+slog triage resolve <full-ulid>
+slog triage reopen <full-ulid>
+```
+
 ### Machine JSON input
 
 Machine commands that accept structured input should support `--json <payload-or->`:
