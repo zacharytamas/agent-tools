@@ -159,6 +159,27 @@ Immutable fields in normal operation:
 
 The v1 update operation should rewrite the relevant daily JSONL partition atomically after applying allowed field changes.
 
+### Triage workflow
+
+V1 triage should be a set of explicit commands over `needs_triage`, not an interactive review UI. Interactive triage can be added later over the same primitives if needed.
+
+Human-facing triage commands should include:
+
+```sh
+slog triage
+slog triage --all
+slog triage resolve <full-ulid>
+slog triage reopen <full-ulid>
+```
+
+`slog triage` lists entries where `needs_triage=true`, bounded to today by default. `slog triage --all` lists unresolved triage entries across all partitions.
+
+`resolve` sets `needs_triage=false`. Resolving triage means the entry no longer requires triage review; it does not mean the underlying work, action, or subject of the entry is complete.
+
+`reopen` sets `needs_triage=true`, returning the entry to the triage queue.
+
+Editing entry text should use the normal edit/update path rather than triage-specific behavior.
+
 ### Deletion
 
 V1 should support hard delete through the human UX, but should not expose ordinary machine/API delete by default.
