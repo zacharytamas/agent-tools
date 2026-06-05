@@ -58,6 +58,38 @@ Example combinations:
 - Preserve enough structure that integrations can share one underlying log without each inventing incompatible semantics.
 - Separate human command ergonomics from machine/integration contracts.
 
+### CLI interface layers
+
+The CLI should provide two layers over the same underlying model:
+
+1. A human UX layer for fast manual operation.
+2. A JSON-native machine contract for harnesses, agents, hooks, imports, and automation.
+
+Human-facing commands should optimize for low-friction capture and review, such as:
+
+```sh
+slog add "Reviewed Spencer's PR"
+slog add --triage "Ask Laila about tenant fallback"
+slog list
+slog triage
+slog show <id>
+```
+
+Machine-facing commands should optimize for explicit structured input and stable output, such as:
+
+```sh
+slog entry create --json '{...}'
+slog entry update --json '{...}'
+slog entry list --json
+slog entry show <id> --json
+```
+
+Harness integrations must not parse human-oriented CLI output. Hermes, OpenCode, hooks, imports, and future adapters should use JSON-native machine commands so the human CLI remains free to improve its display without breaking integrations.
+
+Machine writers should provide `actor` and `authority` explicitly on create. Integration profiles may help identify the calling integration, locate config, or set safe defaults for the actor, but they should not silently imply human-delegated authority for arbitrary agent writes. A harness adapter is responsible for translating each native action into the correct authority mode: delegated when the user explicitly asked for the log write, discretionary when the agent chose to record something on its own, observed/imported for external system facts, and derived for generated synthesis.
+
+Human UX commands may use local defaults because their operating context is narrower and interactive. Machine contracts should favor explicit provenance over convenience.
+
 ### Non-goals for this design
 
 ## Implementation
