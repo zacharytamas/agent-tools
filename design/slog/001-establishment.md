@@ -4,7 +4,9 @@
 
 ### What is a Structured Log?
 
-A Structured Log ("slog") is a personal/work operational journal stored as durable, structured records and operated through an environment-agnostic CLI.
+A Structured Log ("slog") is a personal/work operational journal made of entries stored as durable, structured records and operated through an environment-agnostic CLI.
+
+An entry is the canonical domain unit: the thing a human, agent, automation, or import adds to the slog because it may matter later. A record is the persistence representation of an entry on disk. Product language should generally use "entry"; implementation and storage language may use "record" when precision is useful.
 
 The CLI is the product foundation. It is not primarily a Hermes feature, an OpenCode feature, or a feature of any other agent harness. Harness-specific integrations should behave as thin translation layers over the same CLI calls so that entries created from different environments share the same underlying log, conventions, and user experience.
 
