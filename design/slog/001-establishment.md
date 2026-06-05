@@ -90,6 +90,53 @@ Machine writers should provide `actor` and `authority` explicitly on create. Int
 
 Human UX commands may use local defaults because their operating context is narrower and interactive. Machine contracts should favor explicit provenance over convenience.
 
+### Read and query surface
+
+V1 read/query operations should be limited to fields that are part of the core entry model.
+
+Human-facing read commands should include:
+
+```sh
+slog list
+slog today
+slog triage
+slog show <id>
+slog search <query>
+```
+
+Machine-facing read commands should provide JSON-native output and explicit filters:
+
+```sh
+slog entry list --json
+slog entry show <id> --json
+```
+
+V1 filters should include:
+
+- date range
+- `needs_triage`
+- `actor`
+- `authority.source`
+- `authority.mode`
+- text search over `text`
+
+Scope, tag, link, project, task, and summary filters should be deferred until those concepts have canonical shapes.
+
+Human `slog list` should default to a bounded view, likely today's entries in reverse chronological order. Machine `slog entry list --json` should also default to a bounded date range unless an explicit broader range or `--all` is supplied. `slog triage` should list unresolved entries, likely bounded to today by default with an explicit `--all` option.
+
+V1 should require full ULIDs everywhere. Human and machine commands should both store, emit, and accept full IDs only. Prefix matching is intentionally out of scope for v1 because it would require either archive scans, an index/cache, or additional bounded-lookup semantics that are not necessary for the foundation.
+
+Because records are stored in daily JSONL partitions, commands that address an entry by ID still need an efficient way to find the owning partition. ULIDs encode their creation timestamp in the first 48 bits, so an implementation can decode the timestamp from a full ULID in O(1), convert that instant into the configured slog timezone, and inspect the corresponding daily partition first.
+
+V1 lookup by ID should therefore:
+
+1. Require a syntactically valid full ULID.
+2. Decode the ULID timestamp to derive the expected daily partition in the configured slog timezone.
+3. Load that daily partition and search for the full ID.
+4. Report not found if the record is absent from the expected partition.
+
+This lookup strategy relies on the v1 invariant that newly created slog entries use ULIDs generated at record creation time and are stored in the daily partition corresponding to `created_at`. Future backfill/import designs that create entries for historical `occurred_at` values should still generate IDs at insertion time and partition by `created_at`, or they must introduce an explicit index/backreference design before violating that invariant.
+
 ### Non-goals for this design
 
 ## Implementation
