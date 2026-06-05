@@ -140,6 +140,14 @@ V1 storage doctrine:
 
 ### Data Model
 
+#### Entry IDs
+
+Entry IDs should be generated as ULIDs.
+
+Stored records should keep the full ULID. Human-facing and machine-facing commands should both use full IDs in v1. Prefix matching is intentionally deferred until a later design introduces explicit lookup semantics or an index/cache.
+
+IDs must be stable and independent of storage location so entries can survive repartitioning, export, import, or backend migration. The ID is an identity, not the semantic source of time truth. Even though ULIDs are time-sortable, `created_at` remains the authoritative timestamp for when the entry was recorded. Future concepts such as backfilled imports or `occurred_at` should not be constrained by the ULID timestamp.
+
 The minimum useful entry shape should be intentionally small. A slog entry must be cheap to create, but still carry enough structure for later trust, sorting, triage, and summarization.
 
 Required v1 fields:
