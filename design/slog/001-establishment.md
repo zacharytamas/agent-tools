@@ -52,6 +52,12 @@ Example combinations:
 
 ### Goals for this design
 
+- Establish slog as a CLI-first, harness-agnostic structured journal.
+- Define the minimum entry model needed for durable capture, provenance, triage, and later summarization.
+- Keep the foundation small enough that logging remains low-friction.
+- Preserve enough structure that integrations can share one underlying log without each inventing incompatible semantics.
+- Separate human command ergonomics from machine/integration contracts.
+
 ### Non-goals for this design
 
 ## Implementation
