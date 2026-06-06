@@ -31,12 +31,32 @@ export class IdGenerator extends Context.Service<
   IdGeneratorShape
 >()('@tools/slog/IdGenerator') {}
 
+export interface MachineInputShape {
+  readonly readAll: Effect.Effect<string, SlogError>
+}
+
+export class MachineInput extends Context.Service<
+  MachineInput,
+  MachineInputShape
+>()('@tools/slog/MachineInput') {}
+
 export const LiveClockLayer = Layer.succeed(FixedClock, {
   now: Effect.sync(() => new Date()),
 })
 
 export const LiveIdGeneratorLayer = Layer.succeed(IdGenerator, {
   next: (now) => Effect.sync(() => generateUlid(now)),
+})
+
+export const LiveMachineInputLayer = Layer.succeed(MachineInput, {
+  readAll: Effect.tryPromise({
+    try: () => Bun.stdin.text(),
+    catch: (cause) =>
+      new SlogError(
+        'io_error',
+        cause instanceof Error ? cause.message : String(cause),
+      ),
+  }),
 })
 
 export const LiveSlogConfigLayer = Layer.effect(

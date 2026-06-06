@@ -31,10 +31,17 @@ export class SlogError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    readonly details: ReadonlyArray<ValidationDetail> = [],
   ) {
     super(message)
     this.name = 'SlogError'
   }
+}
+
+export interface ValidationDetail {
+  readonly path: string
+  readonly code: string
+  readonly message: string
 }
 
 const fullUlidPattern = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/
