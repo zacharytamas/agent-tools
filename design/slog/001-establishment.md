@@ -643,9 +643,9 @@ Suggested implementation phases:
    - Implement `slog entry list --json` and `slog entry show <full-ulid> --json` with bounded defaults.
 
 3. **Mutation and triage**
-   - Implement machine patch-style update for `text`, `occurred_at`, and `needs_triage`.
-   - Implement human `slog edit` inline flags for `text` and `occurred_at`.
-   - Implement `slog triage`, `slog triage --all`, `slog triage resolve <full-ulid>`, and `slog triage reopen <full-ulid>`.
+   - Implement machine patch-style update as `slog entry update --json <payload-or->` with top-level shape `{ id, changes }`. `changes` must include at least one of `text`, `occurred_at`, or `needs_triage` and must not include unknown or immutable fields. `text` is trimmed and must remain non-empty; `occurred_at` accepts an offset timestamp string or `null`; `needs_triage` must be boolean. `occurred_at: null` clears the optional field from the persisted entry. No-op machine updates are successful and return the unchanged entry without warning so adapter retries remain idempotent.
+   - Implement human `slog edit` inline flags for `text` and `occurred_at`, including `--clear-occurred-at` as the human equivalent of machine `occurred_at: null`. Human edit does not change triage state; `needs_triage` changes are handled through `slog triage resolve/reopen`. No-op human edit/triage commands succeed but report that no changes were made.
+   - Implement `slog triage`, `slog triage --all`, `slog triage resolve <full-ulid>`, and `slog triage reopen <full-ulid>`. `slog triage` defaults to today-only; `--all` is the explicit full unresolved backlog sweep. Phase 3 does not need backlog counts in the default triage output. Phase 3 edit/update/triage commands continue requiring full ULIDs only; triage output should print full IDs for copy/paste.
    - Harden atomic daily-partition rewrites and file locking.
 
 4. **Deletion, search, and polish**
@@ -670,8 +670,15 @@ V1 storage doctrine:
 - Partition records into daily files.
 - Treat each line as the current-state record for one entry.
 - Store each entry exactly once in its owning daily partition.
-- Update entries by rewriting the relevant daily partition file atomically.
-- Use file locking around writes to avoid concurrent write corruption.
+- Update entries by rewriting the relevant daily partition under the partition lock using a temp-file-and-rename strategy.
+- Write rewrite temp files in the same directory as the target partition so the final rename stays on the same filesystem.
+- V1 does not require explicit file fsync or parent-directory fsync for partition rewrites; the storage service can add stronger durability later if real use demands it.
+- Use centralized per-partition locks around writes to avoid concurrent write corruption.
+- Represent locking behind an Effect service so tests can provide deterministic lock behavior and production can manage acquisition/release safely.
+- Store write locks under `~/.slog/locks/YYYY-MM-DD.lock`, where `YYYY-MM-DD` is the target daily partition in system local time.
+- Phase 3 operations may acquire at most one partition lock. Multi-partition operations are deferred and require a separate design decision.
+- Lock acquisition should wait briefly with a hardcoded bounded timeout rather than failing immediately or waiting indefinitely. V1 should assume contention is rare and normally involves at most two writers.
+- On lock timeout, commands should fail with a structured `partition_locked` error rather than continuing without the lock.
 - Keep machine input/output JSON-native regardless of storage details.
 - Prefer implementation simplicity over speculative hand-editability.
 - Do not introduce append-only mutation history, last-write-wins reduction, or compaction in v1.
