@@ -680,7 +680,7 @@ V1 storage doctrine:
 - Use centralized per-partition locks around writes to avoid concurrent write corruption.
 - Represent locking behind an Effect service so tests can provide deterministic lock behavior and production can manage acquisition/release safely.
 - Store write locks under `~/.slog/locks/YYYY-MM-DD.lock`, where `YYYY-MM-DD` is the target daily partition in system local time.
-- Lock files hold PID, ISO acquisition timestamp, and host as JSON for diagnostics only; the lock mechanism relies on file existence and atomic create semantics, and lock content is never a correctness input in v1.
+- Lock files hold a unique ownership token plus PID, ISO acquisition timestamp, and host as JSON. Staleness is judged solely by filesystem mtime, never by lock content. The token is read only to make release ownership-aware (a lock is unlinked on release only if it still carries the releaser's token), which prevents an acquisition whose lock was stale-reclaimed from later deleting a newer holder's lock; PID/timestamp/host remain diagnostics-only.
 - Phase 3 operations may acquire at most one partition lock. Multi-partition operations are deferred and require a separate design decision.
 - Lock acquisition should wait briefly with a hardcoded bounded timeout rather than failing immediately or waiting indefinitely. V1 should assume contention is rare and normally involves at most two writers.
 - On lock timeout, commands should fail with a structured `partition_locked` error rather than continuing without the lock.

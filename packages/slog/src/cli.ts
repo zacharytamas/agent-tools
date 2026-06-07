@@ -6,8 +6,8 @@ import { Argument, Command, Flag } from 'effect/unstable/cli'
 import {
   addCommandProgram,
   listCommandProgram,
-  machineErrorEnvelope,
   machineCreateCliProgram,
+  machineErrorEnvelope,
   machineListCliProgram,
   machineShowCliProgram,
   showCommandProgram,
@@ -19,6 +19,7 @@ import {
   LiveMachineInputLayer,
   LiveSlogConfigLayer,
 } from './environment.js'
+import { LivePartitionLockLayer } from './lock.js'
 import { LiveEntryRepositoryLayer } from './storage.js'
 
 const text = Argument.string('text')
@@ -69,6 +70,7 @@ const app = Command.make('slog').pipe(
 const cli = Command.run(app, { version: '0.1.0' })
 
 const LiveRepositoryWithConfigLayer = LiveEntryRepositoryLayer.pipe(
+  Layer.provideMerge(LivePartitionLockLayer),
   Layer.provideMerge(LiveSlogConfigLayer),
 )
 

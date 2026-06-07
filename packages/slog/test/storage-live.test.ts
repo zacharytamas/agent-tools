@@ -6,6 +6,7 @@ import { Effect, Layer } from 'effect'
 import { showEntryProgram } from '../src/commands.js'
 import type { Entry } from '../src/domain.js'
 import { formatLocalIso, generateUlid, SlogConfig } from '../src/environment.js'
+import { LivePartitionLockLayer } from '../src/lock.js'
 import {
   dailyEntryPath,
   EntryRepository,
@@ -41,6 +42,7 @@ describe('slog live Effect repository layer', () => {
       needs_triage: false,
     }
     const layer = LiveEntryRepositoryLayer.pipe(
+      Layer.provideMerge(LivePartitionLockLayer),
       Layer.provideMerge(
         Layer.succeed(SlogConfig, { home: slogHome, user: 'zachary' }),
       ),
@@ -80,6 +82,7 @@ describe('slog live Effect repository layer', () => {
       wrongDate,
     )
     const layer = LiveEntryRepositoryLayer.pipe(
+      Layer.provideMerge(LivePartitionLockLayer),
       Layer.provideMerge(
         Layer.succeed(SlogConfig, { home: slogHome, user: 'zachary' }),
       ),
@@ -96,6 +99,7 @@ describe('slog live Effect repository layer', () => {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, '{"id":"not-a-real-entry"}\n')
     const layer = LiveEntryRepositoryLayer.pipe(
+      Layer.provideMerge(LivePartitionLockLayer),
       Layer.provideMerge(
         Layer.succeed(SlogConfig, { home: slogHome, user: 'zachary' }),
       ),

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Effect, Layer } from 'effect'
+import { duplicateEntryCreateJsonError } from '../src/cli.js'
 import {
   addEntryProgram,
   listEntriesProgram,
@@ -9,7 +10,6 @@ import {
   machineShowEntryProgram,
   showEntryProgram,
 } from '../src/commands.js'
-import { duplicateEntryCreateJsonError } from '../src/cli.js'
 import type { Entry } from '../src/domain.js'
 import {
   FixedClock,
@@ -51,6 +51,25 @@ function testLayer(writes: Entry[], now = fixedNow, id = fixedId) {
       listToday: () => Effect.succeed(writes),
       findById: (entryId) =>
         Effect.succeed(writes.find((entry) => entry.id === entryId)),
+      updateExisting: (entryId, patch) =>
+        Effect.sync(() => {
+          const index = writes.findIndex((entry) => entry.id === entryId)
+          if (index < 0) throw new Error('not implemented in command seam')
+          const current = writes[index]
+          const updated = {
+            ...current,
+            ...('text' in patch ? { text: patch.text } : {}),
+            ...('needs_triage' in patch
+              ? { needs_triage: patch.needs_triage }
+              : {}),
+            ...('occurred_at' in patch && patch.occurred_at !== null
+              ? { occurred_at: patch.occurred_at }
+              : {}),
+          }
+          if (patch.occurred_at === null) delete updated.occurred_at
+          writes[index] = updated
+          return updated
+        }),
     }),
   )
 }

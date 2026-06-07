@@ -1,4 +1,5 @@
 import { Console, Effect } from 'effect'
+import type { AuthorityMode, ValidationDetail } from './domain.js'
 import {
   Entry,
   SlogError,
@@ -7,7 +8,6 @@ import {
   validateOffsetTimestamp,
   validateText,
 } from './domain.js'
-import type { AuthorityMode, ValidationDetail } from './domain.js'
 import {
   FixedClock,
   formatLocalIso,
