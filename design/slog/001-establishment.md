@@ -465,6 +465,8 @@ slog triage reopen <full-ulid>
 
 Editing entry text should use the normal edit/update path rather than triage-specific behavior.
 
+The `triage` command is intentionally both a leaf and a parent: `slog triage` (and `slog triage --all`) runs its own list handler, while `slog triage resolve|reopen <full-ulid>` dispatch to subcommands. This dual role is supported by the CLI layer (effect/unstable/cli): a command carrying both a handler and `withSubcommands` runs the parent handler when invoked with no subcommand and dispatches to the matching subcommand otherwise. This behavior was verified by CLI smoke during implementation and is relied upon by the triage surface; a future CLI-layer change that breaks parent-with-handler dispatch must preserve `slog triage`'s bare-list behavior.
+
 ### Human show output
 
 Human `slog show <full-ulid>` should display all core fields in a readable detail view. It should include:

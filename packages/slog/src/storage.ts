@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
   appendFile,
   mkdir,
+  readdir,
   readFile,
   rename,
   unlink,
@@ -24,6 +25,10 @@ export interface EntryRepositoryShape {
   readonly listToday: (
     date: Date,
   ) => Effect.Effect<ReadonlyArray<Entry>, SlogError>
+  readonly listTriageToday: (
+    date: Date,
+  ) => Effect.Effect<ReadonlyArray<Entry>, SlogError>
+  readonly listAllTriage: () => Effect.Effect<ReadonlyArray<Entry>, SlogError>
   readonly findById: (id: string) => Effect.Effect<Entry | undefined, SlogError>
   readonly updateExisting: (
     id: string,
@@ -81,6 +86,30 @@ export const LiveEntryRepositoryLayer = Layer.effect(
       return yield* readEntries(date)
     })
 
+    const listTriageToday = Effect.fn('slog.EntryRepository.listTriageToday')(
+      function* (date: Date) {
+        const entries = yield* readEntries(date)
+        return entries.filter((entry) => entry.needs_triage)
+      },
+    )
+
+    const listAllTriage = Effect.fn('slog.EntryRepository.listAllTriage')(
+      function* () {
+        const paths = yield* listDailyEntryPartitionPaths(config.home)
+        const entries: Entry[] = []
+        for (const path of paths) {
+          const records = yield* readPartitionRecords(path, 'empty')
+          yield* ensureNoDuplicateEntryIds(path, records)
+          entries.push(
+            ...records
+              .map((record) => record.entry)
+              .filter((entry) => entry.needs_triage),
+          )
+        }
+        return entries
+      },
+    )
+
     const findById = Effect.fn('slog.EntryRepository.findById')(function* (
       id: string,
     ) {
@@ -126,6 +155,8 @@ export const LiveEntryRepositoryLayer = Layer.effect(
     return {
       append,
       listToday,
+      listTriageToday,
+      listAllTriage,
       findById,
       updateExisting,
     }
@@ -137,6 +168,79 @@ export function dailyEntryPath(slogHome: string, date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return join(slogHome, 'entries', year, month, `${day}.jsonl`)
+}
+
+const yearDirectoryName = /^\d{4}$/
+const monthDirectoryName = /^\d{2}$/
+const dayPartitionFileName = /^\d{2}\.jsonl$/
+
+const listDailyEntryPartitionPaths = Effect.fn(
+  'slog.EntryRepository.listDailyEntryPartitionPaths',
+)(function* (slogHome: string) {
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const entriesRoot = join(slogHome, 'entries')
+      const years = await readDirectoryEntries(
+        entriesRoot,
+        'missing_root_empty',
+      )
+      const paths: string[] = []
+
+      for (const year of years
+        .filter(
+          (entry) => entry.isDirectory() && yearDirectoryName.test(entry.name),
+        )
+        .sort((left, right) => left.name.localeCompare(right.name))) {
+        const yearPath = join(entriesRoot, year.name)
+        const months = await readDirectoryEntries(
+          yearPath,
+          'missing_child_empty',
+        )
+        for (const month of months
+          .filter(
+            (entry) =>
+              entry.isDirectory() && monthDirectoryName.test(entry.name),
+          )
+          .sort((left, right) => left.name.localeCompare(right.name))) {
+          const monthPath = join(yearPath, month.name)
+          const days = await readDirectoryEntries(
+            monthPath,
+            'missing_child_empty',
+          )
+          for (const day of days
+            .filter(
+              (entry) =>
+                entry.isFile() && dayPartitionFileName.test(entry.name),
+            )
+            .sort((left, right) => left.name.localeCompare(right.name))) {
+            paths.push(join(monthPath, day.name))
+          }
+        }
+      }
+
+      return paths
+    },
+    catch: normalizeSlogError,
+  })
+})
+
+async function readDirectoryEntries(
+  path: string,
+  missing: 'missing_root_empty' | 'missing_child_empty',
+) {
+  try {
+    return await readdir(path, { withFileTypes: true })
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') {
+      if (
+        missing === 'missing_root_empty' ||
+        missing === 'missing_child_empty'
+      ) {
+        return []
+      }
+    }
+    throw cause
+  }
 }
 
 function decodeEntryLine(

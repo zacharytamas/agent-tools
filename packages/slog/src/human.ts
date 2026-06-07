@@ -17,6 +17,66 @@ export function renderHumanList(
   return `${lines.join('\n')}\n`
 }
 
+export function renderHumanTriageList(
+  date: Date,
+  entries: ReadonlyArray<Entry>,
+  options: { readonly all?: boolean } = {},
+): string {
+  const groups = options.all
+    ? groupEntriesByLocalDate(entries)
+    : [
+        {
+          stamp: localDateStamp(date),
+          entries: sortEntriesByCreatedAt(entries),
+        },
+      ]
+
+  if (groups.length === 0) return ''
+
+  return `${groups
+    .map((group) => {
+      const lines = [group.stamp, '']
+      for (const entry of group.entries) {
+        lines.push(
+          `${localTimeStamp(entry.created_at)}  ${entry.id}  ${entry.text}`,
+        )
+      }
+      return lines.join('\n')
+    })
+    .join('\n\n')}\n`
+}
+
+function groupEntriesByLocalDate(entries: ReadonlyArray<Entry>): ReadonlyArray<{
+  readonly stamp: string
+  readonly entries: ReadonlyArray<Entry>
+}> {
+  const grouped = new Map<string, Entry[]>()
+  for (const entry of entries) {
+    const stamp = localDateStamp(new Date(entry.created_at))
+    const group = grouped.get(stamp)
+    if (group) {
+      group.push(entry)
+    } else {
+      grouped.set(stamp, [entry])
+    }
+  }
+
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([stamp, dayEntries]) => ({
+      stamp,
+      entries: sortEntriesByCreatedAt(dayEntries),
+    }))
+}
+
+function sortEntriesByCreatedAt(
+  entries: ReadonlyArray<Entry>,
+): ReadonlyArray<Entry> {
+  return [...entries].sort(
+    (left, right) => Date.parse(left.created_at) - Date.parse(right.created_at),
+  )
+}
+
 export function renderHumanShow(entry: Entry): string {
   const lines = [
     `ID:        ${entry.id}`,

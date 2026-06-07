@@ -12,7 +12,10 @@ import {
   machineListCliProgram,
   machineShowCliProgram,
   machineUpdateCliProgram,
+  reopenTriageCommandProgram,
+  resolveTriageCommandProgram,
   showCommandProgram,
+  triageCommandProgram,
 } from './commands.js'
 import { SlogError } from './domain.js'
 import {
@@ -29,6 +32,7 @@ const text = Argument.string('text')
 const id = Argument.string('id')
 const triage = Flag.boolean('triage')
 const clearOccurredAt = Flag.boolean('clear-occurred-at')
+const all = Flag.boolean('all')
 const json = Flag.boolean('json')
 const jsonPayload = Flag.string('json').pipe(Flag.optional)
 const editText = Flag.string('text').pipe(Flag.optional)
@@ -65,6 +69,24 @@ const edit = Command.make(
     }),
 ).pipe(Command.withDescription('Edit a slog entry'))
 
+const triageResolve = Command.make('resolve', { id }, ({ id }) =>
+  resolveTriageCommandProgram(id),
+).pipe(Command.withDescription('Resolve a triage entry (needs_triage=false)'))
+
+const triageReopen = Command.make('reopen', { id }, ({ id }) =>
+  reopenTriageCommandProgram(id),
+).pipe(Command.withDescription('Reopen a triage entry (needs_triage=true)'))
+
+// `triage` is both a leaf (list today, or --all across partitions) and a
+// parent for resolve/reopen. effect/unstable/cli runs this command's own
+// handler when invoked with no subcommand, and dispatches to the subcommand
+// otherwise; verified by CLI smoke.
+const triageCommand = Command.make('triage', { all }, ({ all }) =>
+  triageCommandProgram(all),
+)
+  .pipe(Command.withDescription('List triage entries (today by default)'))
+  .pipe(Command.withSubcommands([triageResolve, triageReopen]))
+
 const entryCreate = Command.make('create', { json: jsonPayload }, ({ json }) =>
   machineCreateCliProgram(Option.getOrUndefined(json)),
 ).pipe(Command.withDescription('Create a slog entry from machine JSON'))
@@ -86,7 +108,7 @@ const entry = Command.make('entry').pipe(
 )
 
 const app = Command.make('slog').pipe(
-  Command.withSubcommands([add, list, show, edit, entry]),
+  Command.withSubcommands([add, list, show, edit, triageCommand, entry]),
 )
 const cli = Command.run(app, { version: '0.1.0' })
 

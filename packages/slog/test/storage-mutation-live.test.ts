@@ -271,6 +271,97 @@ describe('slog storage mutation foundation', () => {
     })
   })
 
+  test('listTriageToday returns only today entries that still need triage', async () => {
+    const slogHome = await makeHome()
+    const triage = makeEntry({ needs_triage: true, text: 'Needs human review' })
+    const resolved = makeEntry({
+      id: otherId,
+      created_at: formatLocalIso(laterNow),
+      needs_triage: false,
+      text: 'Already settled',
+    })
+    const yesterday = new Date('2026-06-04T12:00:00-04:00')
+    await writeEntries(slogHome, [triage, resolved])
+    await writeEntries(
+      slogHome,
+      [
+        makeEntry({
+          id: `${generateUlid(yesterday).slice(0, 10)}ZZZZZZZZZZZZZZZZ`,
+          created_at: formatLocalIso(yesterday),
+          needs_triage: true,
+          text: 'Wrong day triage',
+        }),
+      ],
+      yesterday,
+    )
+
+    const listed = await runRepo(slogHome, (repo) =>
+      repo.listTriageToday(baseNow),
+    )
+
+    expect(listed).toEqual([triage])
+  })
+
+  test('listAllTriage scans unresolved triage across daily partitions and treats a missing entries dir as empty', async () => {
+    const emptyHome = await makeHome()
+    await expect(
+      runRepo(emptyHome, (repo) => repo.listAllTriage()),
+    ).resolves.toEqual([])
+
+    const slogHome = await makeHome()
+    const yesterday = new Date('2026-06-04T12:00:00-04:00')
+    const tomorrow = new Date('2026-06-06T10:30:00-04:00')
+    const todayTriage = makeEntry({
+      needs_triage: true,
+      text: 'Today triage',
+    })
+    const yesterdayTriage = makeEntry({
+      id: `${generateUlid(yesterday).slice(0, 10)}YYYYYYYYYYYYYYYY`,
+      created_at: formatLocalIso(yesterday),
+      needs_triage: true,
+      text: 'Yesterday triage',
+    })
+    const tomorrowResolved = makeEntry({
+      id: `${generateUlid(tomorrow).slice(0, 10)}TTTTTTTTTTTTTTTT`,
+      created_at: formatLocalIso(tomorrow),
+      needs_triage: false,
+      text: 'Tomorrow resolved',
+    })
+    await writeEntries(slogHome, [todayTriage])
+    await writeEntries(slogHome, [yesterdayTriage], yesterday)
+    await writeEntries(slogHome, [tomorrowResolved], tomorrow)
+
+    const listed = await runRepo(slogHome, (repo) => repo.listAllTriage())
+
+    expect(listed).toEqual([yesterdayTriage, todayTriage])
+  })
+
+  test('listAllTriage fails storage_corrupt when a scanned partition has duplicate ids', async () => {
+    const slogHome = await makeHome()
+    const duplicateOne = makeEntry({
+      needs_triage: true,
+      text: 'Duplicate one',
+    })
+    const duplicateTwo = makeEntry({
+      needs_triage: true,
+      text: 'Duplicate two',
+    })
+    const path = await writeEntries(slogHome, [duplicateOne, duplicateTwo])
+
+    await expect(
+      runRepo(slogHome, (repo) => repo.listAllTriage()),
+    ).rejects.toMatchObject({
+      code: 'storage_corrupt',
+      details: [
+        {
+          path,
+          code: 'duplicate_entry_id',
+        },
+        { path: '', code: 'entry_id', message: targetId },
+      ],
+    })
+  })
+
   test('updateExisting rewrites through temp and rename without leftover temp files and leaves valid JSONL', async () => {
     const slogHome = await makeHome()
     const path = await writeEntries(slogHome, [makeEntry()])

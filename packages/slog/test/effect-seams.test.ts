@@ -13,7 +13,10 @@ import {
   machineShowEntryProgram,
   machineUpdateCommandProgram,
   machineUpdateEntryProgram,
+  reopenTriageEntryProgram,
+  resolveTriageEntryProgram,
   showEntryProgram,
+  triageEntriesProgram,
 } from '../src/commands.js'
 import { type Entry, SlogError } from '../src/domain.js'
 import {
@@ -24,7 +27,7 @@ import {
   MachineInput,
   SlogConfig,
 } from '../src/environment.js'
-import { renderHumanError } from '../src/human.js'
+import { renderHumanError, renderHumanTriageList } from '../src/human.js'
 import { EntryRepository } from '../src/storage.js'
 
 const fixedNow = new Date('2026-06-05T14:52:00-04:00')
@@ -86,6 +89,10 @@ function testLayer(
     Layer.succeed(EntryRepository, {
       append: (entry) => Effect.sync(() => writes.push(entry)),
       listToday: () => Effect.succeed(writes),
+      listTriageToday: () =>
+        Effect.succeed(writes.filter((entry) => entry.needs_triage)),
+      listAllTriage: () =>
+        Effect.succeed(writes.filter((entry) => entry.needs_triage)),
       findById: (entryId) =>
         Effect.succeed(writes.find((entry) => entry.id === entryId)),
       updateExisting: (entryId, patch) =>
@@ -133,6 +140,64 @@ describe('slog Effect-native command programs', () => {
       text: 'Updated text',
       needs_triage: true,
     })
+  })
+
+  test('triage resolve flips needs_triage to false and renders mutation line', async () => {
+    const writes: Entry[] = [
+      entryFixture({ needs_triage: true, text: 'Needs review before archive' }),
+    ]
+
+    const output = await Effect.runPromise(
+      resolveTriageEntryProgram(fixedId).pipe(
+        Effect.provide(testLayer(writes)),
+      ),
+    )
+
+    expect(output).toBe(`Resolved ${fixedId}  Needs review before archive`)
+    expect(writes[0]).toMatchObject({
+      text: 'Needs review before archive',
+      needs_triage: false,
+    })
+  })
+
+  test('triage reopen flips only needs_triage to true and preserves entry fields', async () => {
+    const writes: Entry[] = [
+      entryFixture({
+        needs_triage: false,
+        text: 'Keep text stable',
+        occurred_at: '2026-06-05T10:42:00-04:00',
+      }),
+    ]
+
+    const output = await Effect.runPromise(
+      reopenTriageEntryProgram(fixedId).pipe(Effect.provide(testLayer(writes))),
+    )
+
+    expect(output).toBe(`Reopened ${fixedId}  Keep text stable`)
+    expect(writes[0]).toEqual(
+      entryFixture({
+        needs_triage: true,
+        text: 'Keep text stable',
+        occurred_at: '2026-06-05T10:42:00-04:00',
+      }),
+    )
+  })
+
+  test('triage resolve and reopen attach entry_id detail on missing full ULID', async () => {
+    for (const program of [
+      resolveTriageEntryProgram,
+      reopenTriageEntryProgram,
+    ]) {
+      await expect(
+        Effect.runPromise(
+          program(missingId).pipe(Effect.provide(testLayer([]))),
+        ),
+      ).rejects.toMatchObject({
+        code: 'entry_not_found',
+        message: 'No entry exists with the supplied id.',
+        details: [{ path: '', code: 'entry_id', message: missingId }],
+      })
+    }
   })
 
   test('human edit --occurred-at sets occurred_at and --clear-occurred-at clears it', async () => {
@@ -889,6 +954,72 @@ describe('slog Effect-native command programs', () => {
     expect(output).toContain(`${fixedId}  Reviewed Spencer PR`)
     expect(output).not.toContain(`TRIAGE  ${fixedId}`)
     expect(output.indexOf(laterId)).toBeLessThan(output.indexOf(fixedId))
+  })
+
+  test('triage renderer groups by day in chronological order without redundant TRIAGE markers', () => {
+    const yesterday = new Date('2026-06-04T12:00:00-04:00')
+    const yesterdayId = `${generateUlid(yesterday).slice(0, 10)}YYYYYYYYYYYYYYYY`
+    const entries: Entry[] = [
+      entryFixture({
+        id: laterId,
+        created_at: formatLocalIso(laterNow),
+        text: 'Later today triage',
+        needs_triage: true,
+      }),
+      entryFixture({
+        id: yesterdayId,
+        created_at: formatLocalIso(yesterday),
+        text: 'Yesterday triage',
+        needs_triage: true,
+      }),
+      entryFixture({
+        id: fixedId,
+        created_at: formatLocalIso(fixedNow),
+        text: 'Earlier today triage',
+        needs_triage: true,
+      }),
+    ]
+
+    const todayOnly = renderHumanTriageList(fixedNow, [entries[0], entries[2]])
+    expect(todayOnly).toBe(
+      `2026-06-05\n\n18:52  ${fixedId}  Earlier today triage\n19:05  ${laterId}  Later today triage\n`,
+    )
+    expect(todayOnly).not.toContain('TRIAGE')
+
+    const all = renderHumanTriageList(fixedNow, entries, { all: true })
+    expect(all).toBe(
+      `2026-06-04\n\n16:00  ${yesterdayId}  Yesterday triage\n\n2026-06-05\n\n18:52  ${fixedId}  Earlier today triage\n19:05  ${laterId}  Later today triage\n`,
+    )
+    expect(all).not.toContain('TRIAGE')
+  })
+
+  test('triage list program uses today scope by default and all-partition scan with --all', async () => {
+    const entries: Entry[] = [
+      entryFixture({ needs_triage: true, text: 'Today triage' }),
+      entryFixture({
+        id: laterId,
+        created_at: formatLocalIso(laterNow),
+        needs_triage: false,
+        text: 'Resolved today',
+      }),
+    ]
+
+    const today = await Effect.runPromise(
+      triageEntriesProgram({ all: false }).pipe(
+        Effect.provide(testLayer(entries)),
+      ),
+    )
+    expect(today).toContain(`${fixedId}  Today triage`)
+    expect(today).not.toContain(laterId)
+
+    entries[1] = { ...entries[1], needs_triage: true }
+    const all = await Effect.runPromise(
+      triageEntriesProgram({ all: true }).pipe(
+        Effect.provide(testLayer(entries)),
+      ),
+    )
+    expect(all).toContain(`${fixedId}  Today triage`)
+    expect(all).toContain(`${laterId}  Resolved today`)
   })
 
   test('show renders metadata, blank line, text, and omits Occurred when absent', async () => {

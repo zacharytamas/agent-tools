@@ -19,6 +19,7 @@ import {
   renderHumanList,
   renderHumanMutation,
   renderHumanShow,
+  renderHumanTriageList,
 } from './human.js'
 import { type EntryPatch, EntryRepository } from './storage.js'
 
@@ -229,6 +230,42 @@ export const editEntryProgram = Effect.fn('slog.editEntry')(function* (
   const updated = yield* repo.updateExisting(current.id, patch)
   return renderHumanMutation(changed ? 'Updated' : 'No changes', updated)
 })
+
+export const resolveTriageEntryProgram = Effect.fn('slog.resolveTriageEntry')(
+  function* (id: string) {
+    const current = yield* findEntryByFullId(id)
+    const repo = yield* EntryRepository
+    const updated = yield* repo.updateExisting(current.id, {
+      needs_triage: false,
+    })
+    return renderHumanMutation('Resolved', updated)
+  },
+)
+
+export const reopenTriageEntryProgram = Effect.fn('slog.reopenTriageEntry')(
+  function* (id: string) {
+    const current = yield* findEntryByFullId(id)
+    const repo = yield* EntryRepository
+    const updated = yield* repo.updateExisting(current.id, {
+      needs_triage: true,
+    })
+    return renderHumanMutation('Reopened', updated)
+  },
+)
+
+export const triageEntriesProgram = Effect.fn('slog.triageEntries')(
+  function* (options: { readonly all: boolean }) {
+    const clock = yield* FixedClock
+    const repo = yield* EntryRepository
+    const now = yield* clock.now
+    if (options.all) {
+      const entries = yield* repo.listAllTriage()
+      return renderHumanTriageList(now, entries, { all: true })
+    }
+    const entries = yield* repo.listTriageToday(now)
+    return renderHumanTriageList(now, entries)
+  },
+)
 
 export const machineShowEntryProgram = Effect.fn('slog.machineShowEntry')(
   function* (id: string) {
@@ -874,5 +911,29 @@ export function showCommandProgram(
 ): Effect.Effect<void, SlogError, EntryRepository> {
   return Effect.gen(function* () {
     yield* Console.log(yield* showEntryProgram(id))
+  })
+}
+
+export function triageCommandProgram(
+  all: boolean,
+): Effect.Effect<void, SlogError, FixedClock | EntryRepository> {
+  return Effect.gen(function* () {
+    yield* Console.log(yield* triageEntriesProgram({ all }))
+  })
+}
+
+export function resolveTriageCommandProgram(
+  id: string,
+): Effect.Effect<void, SlogError, EntryRepository> {
+  return Effect.gen(function* () {
+    yield* Console.log(yield* resolveTriageEntryProgram(id))
+  })
+}
+
+export function reopenTriageCommandProgram(
+  id: string,
+): Effect.Effect<void, SlogError, EntryRepository> {
+  return Effect.gen(function* () {
+    yield* Console.log(yield* reopenTriageEntryProgram(id))
   })
 }
