@@ -10,6 +10,7 @@ import {
   machineErrorEnvelope,
   machineListCliProgram,
   machineShowCliProgram,
+  machineUpdateCliProgram,
   showCommandProgram,
 } from './commands.js'
 import { SlogError } from './domain.js'
@@ -52,6 +53,10 @@ const entryCreate = Command.make('create', { json: jsonPayload }, ({ json }) =>
   machineCreateCliProgram(Option.getOrUndefined(json)),
 ).pipe(Command.withDescription('Create a slog entry from machine JSON'))
 
+const entryUpdate = Command.make('update', { json: jsonPayload }, ({ json }) =>
+  machineUpdateCliProgram(Option.getOrUndefined(json)),
+).pipe(Command.withDescription('Update a slog entry from machine JSON'))
+
 const entryList = Command.make('list', { json }, ({ json }) =>
   machineListCliProgram(json),
 ).pipe(Command.withDescription('List slog entries as machine JSON'))
@@ -61,7 +66,7 @@ const entryShow = Command.make('show', { id, json }, ({ id, json }) =>
 ).pipe(Command.withDescription('Show a slog entry as machine JSON'))
 
 const entry = Command.make('entry').pipe(
-  Command.withSubcommands([entryCreate, entryList, entryShow]),
+  Command.withSubcommands([entryCreate, entryUpdate, entryList, entryShow]),
 )
 
 const app = Command.make('slog').pipe(
@@ -83,9 +88,7 @@ const LiveLayer = Layer.mergeAll(
 ).pipe(Layer.provideMerge(BunServices.layer))
 
 if (import.meta.main) {
-  const duplicateJsonError = duplicateEntryCreateJsonError(
-    process.argv.slice(2),
-  )
+  const duplicateJsonError = duplicateEntryJsonError(process.argv.slice(2))
 
   if (duplicateJsonError) {
     Console.error(
@@ -104,10 +107,12 @@ if (import.meta.main) {
   }
 }
 
-export function duplicateEntryCreateJsonError(
+export function duplicateEntryJsonError(
   args: ReadonlyArray<string>,
 ): SlogError | undefined {
-  if (args[0] !== 'entry' || args[1] !== 'create') return undefined
+  if (args[0] !== 'entry') return undefined
+  const command = args[1]
+  if (command !== 'create' && command !== 'update') return undefined
 
   const jsonFlagCount = args.filter(
     (arg) => arg === '--json' || arg.startsWith('--json='),
@@ -116,7 +121,7 @@ export function duplicateEntryCreateJsonError(
 
   return new SlogError(
     'validation_failed',
-    'entry create accepts exactly one --json payload source.',
+    `entry ${command} accepts exactly one --json payload source.`,
     [
       {
         path: 'json',
@@ -127,3 +132,5 @@ export function duplicateEntryCreateJsonError(
     ],
   )
 }
+
+export const duplicateEntryCreateJsonError = duplicateEntryJsonError

@@ -16,7 +16,7 @@ import {
   SlogConfig,
 } from './environment.js'
 import { renderHumanList, renderHumanShow } from './human.js'
-import { EntryRepository } from './storage.js'
+import { type EntryPatch, EntryRepository } from './storage.js'
 
 export interface AddEntryOptions {
   readonly text: string
@@ -56,6 +56,11 @@ interface MachineCreatePayload {
   }
   readonly needs_triage?: boolean | undefined
   readonly occurred_at?: string | undefined
+}
+
+interface MachineUpdatePayload {
+  readonly id: string
+  readonly patch: EntryPatch
 }
 
 export const addEntryProgram = Effect.fn('slog.addEntry')(function* (
@@ -138,6 +143,26 @@ export const machineCreateCommandProgram = Effect.fn(
   return yield* machineCreateEntryProgram(payloadText)
 })
 
+export const machineUpdateEntryProgram = Effect.fn('slog.machineUpdateEntry')(
+  function* (payloadText: string) {
+    const payload = yield* Effect.try({
+      try: () => parseMachineUpdatePayload(payloadText),
+      catch: normalizeSlogError,
+    })
+    const repo = yield* EntryRepository
+    const entry = yield* repo.updateExisting(payload.id, payload.patch)
+    return { entry, warnings: [] }
+  },
+)
+
+export const machineUpdateCommandProgram = Effect.fn(
+  'slog.machineUpdateCommand',
+)(function* (jsonPayload: string) {
+  const payloadText =
+    jsonPayload === '-' ? yield* (yield* MachineInput).readAll : jsonPayload
+  return yield* machineUpdateEntryProgram(payloadText)
+})
+
 export const listEntriesProgram = Effect.fn('slog.listEntries')(function* () {
   const clock = yield* FixedClock
   const repo = yield* EntryRepository
@@ -196,6 +221,18 @@ export function machineCreateCliProgram(
         ),
       )
     : writeMachineJson(machineCreateCommandProgram(jsonPayload))
+}
+
+export function machineUpdateCliProgram(
+  jsonPayload: string | undefined,
+): Effect.Effect<void, never, EntryRepository | MachineInput> {
+  return jsonPayload === undefined
+    ? writeMachineJson(
+        Effect.fail(
+          new SlogError('validation_failed', 'entry update requires --json.'),
+        ),
+      )
+    : writeMachineJson(machineUpdateCommandProgram(jsonPayload))
 }
 
 export function machineListCliProgram(
@@ -385,6 +422,224 @@ function parseMachineCreatePayload(payloadText: string): MachineCreatePayload {
   }
 }
 
+function parseMachineUpdatePayload(payloadText: string): MachineUpdatePayload {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(payloadText)
+  } catch {
+    throw updateValidationFailed([
+      {
+        path: '',
+        code: 'invalid_json',
+        message: 'Payload must be valid JSON.',
+      },
+    ])
+  }
+
+  if (!isPlainRecord(parsed)) {
+    throw updateValidationFailed([
+      {
+        path: '',
+        code: 'invalid_type',
+        message: 'Payload must be a single JSON object.',
+      },
+    ])
+  }
+
+  const details: ValidationDetail[] = []
+
+  for (const key of Object.keys(parsed)) {
+    if (key !== 'id' && key !== 'changes') {
+      details.push({
+        path: key,
+        code: 'unknown_field',
+        message: 'Only id and changes may be supplied.',
+      })
+    }
+  }
+
+  const id = readFullUlid(parsed, 'id', details)
+  const changesValue = parsed.changes
+  let patch: EntryPatch = {}
+
+  if (!isPlainRecord(changesValue)) {
+    details.push({
+      path: 'changes',
+      code: 'invalid_type',
+      message: 'changes must be an object.',
+    })
+  } else {
+    patch = readMachineUpdateChanges(changesValue, details)
+  }
+
+  if (details.length > 0) throw updateValidationFailed(details)
+  if (id === undefined) {
+    throw updateValidationFailed([
+      {
+        path: 'id',
+        code: 'invalid_id',
+        message: 'id must be a full ULID.',
+      },
+    ])
+  }
+
+  return { id, patch }
+}
+
+function readMachineUpdateChanges(
+  changes: Record<string, unknown>,
+  details: ValidationDetail[],
+): EntryPatch {
+  let patch: EntryPatch = {}
+  let allowedChangeCount = 0
+
+  for (const key of Object.keys(changes)) {
+    if (isMachineUpdateChangeKey(key)) {
+      allowedChangeCount += 1
+      continue
+    }
+
+    details.push({
+      path: `changes.${key}`,
+      code: isMachineUpdateForbiddenKey(key)
+        ? 'forbidden_field'
+        : 'unknown_field',
+      message: 'Only text, occurred_at, and needs_triage may be changed.',
+    })
+  }
+
+  if (allowedChangeCount === 0) {
+    details.push({
+      path: 'changes',
+      code: 'missing_change',
+      message:
+        'changes must include at least one of text, occurred_at, or needs_triage.',
+    })
+  }
+
+  if ('text' in changes) {
+    const text = readTextAt(changes, 'text', 'changes.text', details)
+    if (text !== undefined) patch = { ...patch, text }
+  }
+
+  if ('occurred_at' in changes) {
+    const occurredAtValue = changes.occurred_at
+    if (occurredAtValue === null) {
+      patch = { ...patch, occurred_at: null }
+    } else if (typeof occurredAtValue !== 'string') {
+      details.push({
+        path: 'changes.occurred_at',
+        code: 'invalid_type',
+        message: 'changes.occurred_at must be a string or null.',
+      })
+    } else {
+      try {
+        patch = {
+          ...patch,
+          occurred_at: validateOffsetTimestamp(
+            occurredAtValue,
+            'changes.occurred_at',
+          ),
+        }
+      } catch (cause) {
+        details.push({
+          path: 'changes.occurred_at',
+          code: 'invalid_timestamp',
+          message:
+            cause instanceof Error
+              ? cause.message
+              : 'changes.occurred_at must be a valid timestamp.',
+        })
+      }
+    }
+  }
+
+  if ('needs_triage' in changes) {
+    const needsTriageValue = changes.needs_triage
+    if (typeof needsTriageValue !== 'boolean') {
+      details.push({
+        path: 'changes.needs_triage',
+        code: 'invalid_type',
+        message: 'changes.needs_triage must be a boolean.',
+      })
+    } else {
+      patch = { ...patch, needs_triage: needsTriageValue }
+    }
+  }
+
+  return patch
+}
+
+function readFullUlid(
+  record: Record<string, unknown>,
+  path: string,
+  details: ValidationDetail[],
+): string | undefined {
+  const value = record[path]
+  if (typeof value !== 'string') {
+    details.push({
+      path,
+      code: 'invalid_type',
+      message: `${path} must be a string.`,
+    })
+    return undefined
+  }
+  try {
+    return validateFullUlid(value)
+  } catch (cause) {
+    details.push({
+      path,
+      code: 'invalid_id',
+      message: cause instanceof Error ? cause.message : `${path} is invalid.`,
+    })
+    return undefined
+  }
+}
+
+function readTextAt(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  details: ValidationDetail[],
+): string | undefined {
+  const value = record[key]
+  if (typeof value !== 'string') {
+    details.push({
+      path,
+      code: 'invalid_type',
+      message: `${path} must be a string.`,
+    })
+    return undefined
+  }
+  try {
+    return validateText(value)
+  } catch (cause) {
+    details.push({
+      path,
+      code: 'empty',
+      message: cause instanceof Error ? cause.message : `${path} is invalid.`,
+    })
+    return undefined
+  }
+}
+
+function isMachineUpdateChangeKey(
+  value: string,
+): value is 'text' | 'occurred_at' | 'needs_triage' {
+  return value === 'text' || value === 'occurred_at' || value === 'needs_triage'
+}
+
+function isMachineUpdateForbiddenKey(value: string): boolean {
+  return (
+    value === 'id' ||
+    value === 'created_at' ||
+    value === 'actor' ||
+    value === 'authority' ||
+    value === 'authority.source' ||
+    value === 'authority.mode'
+  )
+}
+
 function readString(
   record: Record<string, unknown>,
   path: string,
@@ -474,6 +729,16 @@ function validationFailed(details: ReadonlyArray<ValidationDetail>): SlogError {
   return new SlogError(
     'validation_failed',
     'Entry create payload failed validation.',
+    details,
+  )
+}
+
+function updateValidationFailed(
+  details: ReadonlyArray<ValidationDetail>,
+): SlogError {
+  return new SlogError(
+    'validation_failed',
+    'Entry update payload failed validation.',
     details,
   )
 }
