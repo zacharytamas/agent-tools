@@ -643,10 +643,10 @@ Suggested implementation phases:
    - Implement `slog entry list --json` and `slog entry show <full-ulid> --json` with bounded defaults.
 
 3. **Mutation and triage**
-   - Implement machine patch-style update as `slog entry update --json <payload-or->` with top-level shape `{ id, changes }`. `changes` must include at least one of `text`, `occurred_at`, or `needs_triage` and must not include unknown or immutable fields. `text` is trimmed and must remain non-empty; `occurred_at` accepts an offset timestamp string or `null`; `needs_triage` must be boolean. `occurred_at: null` clears the optional field from the persisted entry. No-op machine updates are successful and return the unchanged entry without warning so adapter retries remain idempotent.
+   - Implement machine patch-style update as `slog entry update --json <payload-or->` with top-level shape `{ id, changes }`. `changes` must include at least one of `text`, `occurred_at`, or `needs_triage` and must not include unknown or immutable fields. `text` is trimmed and must remain non-empty; `occurred_at` accepts an offset timestamp string or `null`; `needs_triage` must be boolean. `occurred_at: null` clears the optional field from the persisted entry. No-op machine updates are successful and return the unchanged entry without warning so adapter retries remain idempotent. Machine commands that take JSON payloads, currently `entry create` and `entry update`, must reject duplicate `--json` payload sources as ambiguous input before dispatching the command.
    - Implement human `slog edit` inline flags for `text` and `occurred_at`, including `--clear-occurred-at` as the human equivalent of machine `occurred_at: null`. Human edit does not change triage state; `needs_triage` changes are handled through `slog triage resolve/reopen`. No-op human edit/triage commands succeed but report that no changes were made.
-   - Implement `slog triage`, `slog triage --all`, `slog triage resolve <full-ulid>`, and `slog triage reopen <full-ulid>`. `slog triage` defaults to today-only; `--all` is the explicit full unresolved backlog sweep. Phase 3 does not need backlog counts in the default triage output. Phase 3 edit/update/triage commands continue requiring full ULIDs only; triage output should print full IDs for copy/paste.
-   - Harden atomic daily-partition rewrites and file locking.
+   - Implement `slog triage`, `slog triage --all`, `slog triage resolve <full-ulid>`, and `slog triage reopen <full-ulid>`. `slog triage` defaults to today-only; `--all` is the explicit full unresolved backlog sweep. Phase 3 does not need backlog counts in the default triage output. `slog triage --all` discovers entries by recursively scanning valid daily JSONL partition paths under `~/.slog/entries/`; Phase 3 does not introduce an index/cache, but storage discovery stays behind the repository service so a later faster layer can replace JSONL scanning without changing command handlers. Phase 3 edit/update/triage commands continue requiring full ULIDs only; triage output should print full IDs for copy/paste.
+   - Harden atomic daily-partition rewrites and file locking. Implement Phase 3 in separate reviewable packets: storage mutation foundation first, then machine update, then human edit, then human triage.
 
 4. **Deletion, search, and polish**
    - Implement human hard delete with confirmation and full-ULID lookup.
@@ -670,6 +670,9 @@ V1 storage doctrine:
 - Partition records into daily files.
 - Treat each line as the current-state record for one entry.
 - Store each entry exactly once in its owning daily partition.
+- Partition rewrites must match exactly one record by full ULID: zero matches is `entry_not_found`, one match may be updated, and multiple matches is `storage_corrupt` / `duplicate_entry_id` with no rewrite.
+- Any full-ULID lookup, including human and machine `show`, expects zero or one matching record in the owning partition. Multiple matches fail with `storage_corrupt` / `duplicate_entry_id` rather than returning an arbitrary record.
+- List and triage commands should fail with `storage_corrupt` / `duplicate_entry_id` if any scanned partition contains duplicate entry IDs. This validation is scoped to partitions the command already reads; Phase 3 does not introduce a separate global corruption audit.
 - Update entries by rewriting the relevant daily partition under the partition lock using a temp-file-and-rename strategy.
 - Write rewrite temp files in the same directory as the target partition so the final rename stays on the same filesystem.
 - V1 does not require explicit file fsync or parent-directory fsync for partition rewrites; the storage service can add stronger durability later if real use demands it.
