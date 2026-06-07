@@ -3,6 +3,8 @@ import { Effect, Layer } from 'effect'
 import { duplicateEntryJsonError } from '../src/cli.js'
 import {
   addEntryProgram,
+  editCommandProgram,
+  editEntryProgram,
   listEntriesProgram,
   machineCreateCommandProgram,
   machineCreateEntryProgram,
@@ -22,6 +24,7 @@ import {
   MachineInput,
   SlogConfig,
 } from '../src/environment.js'
+import { renderHumanError } from '../src/human.js'
 import { EntryRepository } from '../src/storage.js'
 
 const fixedNow = new Date('2026-06-05T14:52:00-04:00')
@@ -29,6 +32,34 @@ const laterNow = new Date('2026-06-05T15:05:00-04:00')
 const fixedId = `${generateUlid(fixedNow).slice(0, 10)}ABCDEFABCDEFABCD`
 const laterId = `${generateUlid(laterNow).slice(0, 10)}123456789ABCDEF`
 const missingId = `${generateUlid(laterNow).slice(0, 10)}123456789ABCDEF0`
+
+function entryFixture(overrides: Partial<Entry> = {}): Entry {
+  return {
+    id: fixedId,
+    created_at: formatLocalIso(fixedNow),
+    text: 'Original text',
+    actor: 'zachary',
+    authority: { source: 'zachary', mode: 'direct' },
+    needs_triage: false,
+    ...overrides,
+  }
+}
+
+async function captureConsoleLog(
+  effect: Effect.Effect<void, SlogError, EntryRepository>,
+): Promise<ReadonlyArray<string>> {
+  const lines: string[] = []
+  const originalLog = console.log
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map(String).join(' '))
+  }
+  try {
+    await Effect.runPromise(effect)
+  } finally {
+    console.log = originalLog
+  }
+  return lines
+}
 
 function testLayer(
   writes: Entry[],
@@ -88,6 +119,197 @@ function testLayer(
 }
 
 describe('slog Effect-native command programs', () => {
+  test('human edit --text updates text and prints mutation line', async () => {
+    const writes: Entry[] = [entryFixture({ needs_triage: true })]
+
+    const lines = await captureConsoleLog(
+      editCommandProgram({ id: fixedId, text: ' Updated text ' }).pipe(
+        Effect.provide(testLayer(writes)),
+      ),
+    )
+
+    expect(lines).toEqual([`Updated ${fixedId}  Updated text`])
+    expect(writes[0]).toMatchObject({
+      text: 'Updated text',
+      needs_triage: true,
+    })
+  })
+
+  test('human edit --occurred-at sets occurred_at and --clear-occurred-at clears it', async () => {
+    const setWrites: Entry[] = [entryFixture()]
+
+    const setOutput = await Effect.runPromise(
+      editEntryProgram({
+        id: fixedId,
+        occurredAt: '2026-06-05T10:42:00-04:00',
+      }).pipe(Effect.provide(testLayer(setWrites))),
+    )
+
+    expect(setOutput).toBe(`Updated ${fixedId}  Original text`)
+    expect(setWrites[0].occurred_at).toBe('2026-06-05T10:42:00-04:00')
+
+    const clearWrites: Entry[] = [
+      entryFixture({ occurred_at: '2026-06-05T10:42:00-04:00' }),
+    ]
+    const clearOutput = await Effect.runPromise(
+      editEntryProgram({ id: fixedId, clearOccurredAt: true }).pipe(
+        Effect.provide(testLayer(clearWrites)),
+      ),
+    )
+
+    expect(clearOutput).toBe(`Updated ${fixedId}  Original text`)
+    expect(clearWrites[0]).not.toHaveProperty('occurred_at')
+  })
+
+  test('human edit mutation snippet collapses newlines and truncates over 60 characters only', async () => {
+    const longText =
+      '123456789012345678901234567890123456789012345678901234567890X'
+    const longWrites: Entry[] = [entryFixture()]
+
+    const longOutput = await Effect.runPromise(
+      editEntryProgram({ id: fixedId, text: longText }).pipe(
+        Effect.provide(testLayer(longWrites)),
+      ),
+    )
+
+    expect(longOutput).toBe(
+      `Updated ${fixedId}  123456789012345678901234567890123456789012345678901234567890…`,
+    )
+
+    const newlineWrites: Entry[] = [entryFixture()]
+    const newlineOutput = await Effect.runPromise(
+      editEntryProgram({ id: fixedId, text: 'First line\nSecond line' }).pipe(
+        Effect.provide(testLayer(newlineWrites)),
+      ),
+    )
+
+    expect(newlineOutput).toBe(`Updated ${fixedId}  First line Second line`)
+
+    const sixtyCharacters =
+      '123456789012345678901234567890123456789012345678901234567890'
+    const exactWrites: Entry[] = [entryFixture()]
+    const exactOutput = await Effect.runPromise(
+      editEntryProgram({ id: fixedId, text: sixtyCharacters }).pipe(
+        Effect.provide(testLayer(exactWrites)),
+      ),
+    )
+
+    expect(exactOutput).toBe(`Updated ${fixedId}  ${sixtyCharacters}`)
+  })
+
+  test('human edit no-op prints No changes and succeeds', async () => {
+    const writes: Entry[] = [entryFixture({ text: 'Already current' })]
+
+    const output = await Effect.runPromise(
+      editEntryProgram({ id: fixedId, text: 'Already current' }).pipe(
+        Effect.provide(testLayer(writes)),
+      ),
+    )
+
+    expect(output).toBe(`No changes ${fixedId}  Already current`)
+    expect(writes).toEqual([entryFixture({ text: 'Already current' })])
+  })
+
+  test('human edit rejects missing flags', async () => {
+    await expect(
+      Effect.runPromise(
+        editEntryProgram({ id: fixedId }).pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message:
+        'edit requires at least one of --text, --occurred-at, or --clear-occurred-at.',
+    })
+  })
+
+  test('human edit rejects mutually exclusive occurred-at flags', async () => {
+    await expect(
+      Effect.runPromise(
+        editEntryProgram({
+          id: fixedId,
+          occurredAt: '2026-06-05T10:42:00-04:00',
+          clearOccurredAt: true,
+        }).pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message: 'Use either --occurred-at or --clear-occurred-at, not both.',
+    })
+  })
+
+  test('human edit rejects empty text', async () => {
+    await expect(
+      Effect.runPromise(
+        editEntryProgram({ id: fixedId, text: '   ' }).pipe(
+          Effect.provide(testLayer([])),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message: 'text must be non-empty.',
+    })
+  })
+
+  test('human edit rejects invalid occurred_at', async () => {
+    await expect(
+      Effect.runPromise(
+        editEntryProgram({ id: fixedId, occurredAt: 'yesterday' }).pipe(
+          Effect.provide(testLayer([])),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message:
+        'occurred_at must be an ISO 8601 timestamp with an explicit offset.',
+    })
+  })
+
+  test('human edit rejects invalid id as validation_failed', async () => {
+    await expect(
+      Effect.runPromise(
+        editEntryProgram({ id: 'not-a-ulid', text: 'Valid text' }).pipe(
+          Effect.provide(testLayer([])),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message: 'id must be a full ULID.',
+    })
+  })
+
+  test('human edit propagates entry_not_found for absent full ULID', async () => {
+    await expect(
+      Effect.runPromise(
+        editEntryProgram({ id: missingId, text: 'Missing' }).pipe(
+          Effect.provide(testLayer([])),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: 'entry_not_found',
+      message: 'No entry exists with the supplied id.',
+      details: [{ path: '', code: 'entry_id', message: missingId }],
+    })
+  })
+
+  test('human edit does not change needs_triage when editing text or occurred_at', async () => {
+    const writes: Entry[] = [entryFixture({ needs_triage: true })]
+
+    const result = await Effect.runPromise(
+      editEntryProgram({
+        id: fixedId,
+        text: 'Changed text',
+        occurredAt: '2026-06-05T10:42:00-04:00',
+      }).pipe(Effect.provide(testLayer(writes))),
+    )
+
+    expect(result).toBe(`Updated ${fixedId}  Changed text`)
+    expect(writes[0]).toMatchObject({
+      text: 'Changed text',
+      occurred_at: '2026-06-05T10:42:00-04:00',
+      needs_triage: true,
+    })
+  })
+
   test('machine create JSON uses payload plus provided clock, id, and repository services', async () => {
     const writes: Entry[] = []
 
@@ -510,7 +732,7 @@ describe('slog Effect-native command programs', () => {
     ).rejects.toMatchObject({
       code: 'entry_not_found',
       message: 'No entry exists with the supplied id.',
-      details: [],
+      details: [{ path: '', code: 'entry_id', message: missingId }],
     })
 
     await expect(
@@ -687,5 +909,87 @@ describe('slog Effect-native command programs', () => {
     expect(output).toContain('Actor:     zachary\n')
     expect(output).toContain('Triage:    no\n\nReviewed Spencer PR\n')
     expect(output).not.toContain('Occurred:')
+  })
+})
+
+describe('renderHumanError', () => {
+  test('renders entry_not_found with doctrine phrasing and id from entry_id detail', () => {
+    expect(
+      renderHumanError(
+        new SlogError(
+          'entry_not_found',
+          'No entry exists with the supplied id.',
+          [
+            {
+              path: '',
+              code: 'entry_id',
+              message: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+            },
+          ],
+        ),
+      ),
+    ).toBe('Entry not found: 01ARZ3NDEKTSV4RRFFQ69G5FAV')
+  })
+
+  test('renders storage_corrupt with doctrine phrasing and id from entry_id detail', () => {
+    expect(
+      renderHumanError(
+        new SlogError(
+          'storage_corrupt',
+          'Partition contains duplicate entry id.',
+          [
+            {
+              path: 'entries/2026/06/05.jsonl',
+              code: 'duplicate_entry_id',
+              message: 'duplicate',
+            },
+            {
+              path: '',
+              code: 'entry_id',
+              message: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+            },
+          ],
+        ),
+      ),
+    ).toBe(
+      'Storage corrupt: multiple records found for 01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    )
+  })
+
+  test('renders a bare single-line message when there are no path details', () => {
+    expect(
+      renderHumanError(
+        new SlogError(
+          'validation_failed',
+          'edit requires at least one of --text, --occurred-at, or --clear-occurred-at.',
+        ),
+      ),
+    ).toBe(
+      'edit requires at least one of --text, --occurred-at, or --clear-occurred-at.',
+    )
+  })
+
+  test('appends the first non-empty path detail when present and no doctrine code matches', () => {
+    expect(
+      renderHumanError(
+        new SlogError('validation_failed', 'changes failed validation.', [
+          {
+            path: 'changes.actor',
+            code: 'forbidden_field',
+            message: 'forbidden',
+          },
+        ]),
+      ),
+    ).toBe('changes failed validation. (changes.actor)')
+  })
+
+  test('ignores detail with empty path when no doctrine code matches', () => {
+    expect(
+      renderHumanError(
+        new SlogError('validation_failed', 'id must be a full ULID.', [
+          { path: '', code: 'invalid', message: 'x' },
+        ]),
+      ),
+    ).toBe('id must be a full ULID.')
   })
 })

@@ -5,6 +5,7 @@ import { Console, Effect, Layer, Option } from 'effect'
 import { Argument, Command, Flag } from 'effect/unstable/cli'
 import {
   addCommandProgram,
+  editCommandProgram,
   listCommandProgram,
   machineCreateCliProgram,
   machineErrorEnvelope,
@@ -20,14 +21,17 @@ import {
   LiveMachineInputLayer,
   LiveSlogConfigLayer,
 } from './environment.js'
+import { renderHumanError } from './human.js'
 import { LivePartitionLockLayer } from './lock.js'
 import { LiveEntryRepositoryLayer } from './storage.js'
 
 const text = Argument.string('text')
 const id = Argument.string('id')
 const triage = Flag.boolean('triage')
+const clearOccurredAt = Flag.boolean('clear-occurred-at')
 const json = Flag.boolean('json')
 const jsonPayload = Flag.string('json').pipe(Flag.optional)
+const editText = Flag.string('text').pipe(Flag.optional)
 const occurredAt = Flag.string('occurred-at').pipe(Flag.optional)
 
 const add = Command.make(
@@ -48,6 +52,18 @@ const list = Command.make('list', {}, () => listCommandProgram()).pipe(
 const show = Command.make('show', { id }, ({ id }) =>
   showCommandProgram(id),
 ).pipe(Command.withDescription('Show a slog entry'))
+
+const edit = Command.make(
+  'edit',
+  { id, text: editText, occurredAt, clearOccurredAt },
+  ({ id, text, occurredAt, clearOccurredAt }) =>
+    editCommandProgram({
+      id,
+      text: Option.getOrUndefined(text),
+      occurredAt: Option.getOrUndefined(occurredAt),
+      clearOccurredAt,
+    }),
+).pipe(Command.withDescription('Edit a slog entry'))
 
 const entryCreate = Command.make('create', { json: jsonPayload }, ({ json }) =>
   machineCreateCliProgram(Option.getOrUndefined(json)),
@@ -70,7 +86,7 @@ const entry = Command.make('entry').pipe(
 )
 
 const app = Command.make('slog').pipe(
-  Command.withSubcommands([add, list, show, entry]),
+  Command.withSubcommands([add, list, show, edit, entry]),
 )
 const cli = Command.run(app, { version: '0.1.0' })
 
@@ -103,7 +119,20 @@ if (import.meta.main) {
       BunRuntime.runMain,
     )
   } else {
-    cli.pipe(Effect.provide(LiveLayer), BunRuntime.runMain)
+    cli.pipe(
+      Effect.provide(LiveLayer),
+      Effect.catch((error) =>
+        error instanceof SlogError
+          ? Effect.gen(function* () {
+              yield* Console.error(renderHumanError(error))
+              yield* Effect.sync(() => {
+                process.exitCode = 1
+              })
+            })
+          : Effect.fail(error),
+      ),
+      BunRuntime.runMain,
+    )
   }
 }
 

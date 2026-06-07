@@ -293,6 +293,7 @@ function duplicateEntryIdError(path: string, id: string): SlogError {
         code: 'duplicate_entry_id',
         message: `Partition contains more than one record for entry id ${id}.`,
       },
+      { path: '', code: 'entry_id', message: id },
     ],
   )
 }

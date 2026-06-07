@@ -223,6 +223,7 @@ describe('slog storage mutation foundation', () => {
           path,
           code: 'duplicate_entry_id',
         },
+        { path: '', code: 'entry_id', message: targetId },
       ],
     })
     expect(await readFile(path, 'utf8')).toBe(before)
@@ -244,6 +245,7 @@ describe('slog storage mutation foundation', () => {
           path,
           code: 'duplicate_entry_id',
         },
+        { path: '', code: 'entry_id', message: targetId },
       ],
     })
   })
@@ -264,6 +266,7 @@ describe('slog storage mutation foundation', () => {
           path,
           code: 'duplicate_entry_id',
         },
+        { path: '', code: 'entry_id', message: targetId },
       ],
     })
   })

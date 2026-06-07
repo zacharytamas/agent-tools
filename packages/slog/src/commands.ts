@@ -15,13 +15,24 @@ import {
   MachineInput,
   SlogConfig,
 } from './environment.js'
-import { renderHumanList, renderHumanShow } from './human.js'
+import {
+  renderHumanList,
+  renderHumanMutation,
+  renderHumanShow,
+} from './human.js'
 import { type EntryPatch, EntryRepository } from './storage.js'
 
 export interface AddEntryOptions {
   readonly text: string
   readonly needsTriage: boolean
   readonly occurredAt?: string | undefined
+}
+
+export interface EditEntryOptions {
+  readonly id: string
+  readonly text?: string | undefined
+  readonly occurredAt?: string | undefined
+  readonly clearOccurredAt?: boolean | undefined
 }
 
 export interface MachineWarning {
@@ -71,22 +82,30 @@ export const addEntryProgram = Effect.fn('slog.addEntry')(function* (
   const ids = yield* IdGenerator
   const repo = yield* EntryRepository
   const now = yield* clock.now
+  const generatedId = yield* ids.next(now)
 
-  const entry = new Entry({
-    id: validateFullUlid(yield* ids.next(now)),
-    created_at: formatLocalIso(now),
-    ...(options.occurredAt !== undefined
-      ? {
-          occurred_at: validateOffsetTimestamp(
-            options.occurredAt,
-            'occurred_at',
-          ),
-        }
-      : {}),
-    text: validateText(options.text),
-    actor: config.user,
-    authority: { source: config.user, mode: 'direct' },
-    needs_triage: options.needsTriage,
+  // Validators throw SlogError synchronously; wrap them in Effect.try so they
+  // surface as typed failures (recoverable at the CLI boundary) rather than
+  // defects that bypass error handling and dump a stack trace.
+  const entry = yield* Effect.try({
+    try: () =>
+      new Entry({
+        id: validateFullUlid(generatedId),
+        created_at: formatLocalIso(now),
+        ...(options.occurredAt !== undefined
+          ? {
+              occurred_at: validateOffsetTimestamp(
+                options.occurredAt,
+                'occurred_at',
+              ),
+            }
+          : {}),
+        text: validateText(options.text),
+        actor: config.user,
+        authority: { source: config.user, mode: 'direct' },
+        needs_triage: options.needsTriage,
+      }),
+    catch: normalizeSlogError,
   })
 
   yield* repo.append(entry)
@@ -200,6 +219,17 @@ export const showEntryProgram = Effect.fn('slog.showEntry')(function* (
   return renderHumanShow(entry)
 })
 
+export const editEntryProgram = Effect.fn('slog.editEntry')(function* (
+  options: EditEntryOptions,
+) {
+  const patch = yield* buildHumanEditPatch(options)
+  const current = yield* findEntryByFullId(options.id)
+  const repo = yield* EntryRepository
+  const changed = editPatchChangesEntry(current, patch)
+  const updated = yield* repo.updateExisting(current.id, patch)
+  return renderHumanMutation(changed ? 'Updated' : 'No changes', updated)
+})
+
 export const machineShowEntryProgram = Effect.fn('slog.machineShowEntry')(
   function* (id: string) {
     const entry = yield* findEntryByFullId(id)
@@ -286,6 +316,67 @@ function writeMachineJson<A, R>(
   )
 }
 
+const buildHumanEditPatch = Effect.fn('slog.buildHumanEditPatch')(function* (
+  options: EditEntryOptions,
+) {
+  const hasText = options.text !== undefined
+  const hasOccurredAt = options.occurredAt !== undefined
+  const hasClearOccurredAt = options.clearOccurredAt === true
+
+  if (!(hasText || hasOccurredAt || hasClearOccurredAt)) {
+    return yield* Effect.fail(
+      new SlogError(
+        'validation_failed',
+        'edit requires at least one of --text, --occurred-at, or --clear-occurred-at.',
+      ),
+    )
+  }
+
+  if (hasOccurredAt && hasClearOccurredAt) {
+    return yield* Effect.fail(
+      new SlogError(
+        'validation_failed',
+        'Use either --occurred-at or --clear-occurred-at, not both.',
+      ),
+    )
+  }
+
+  let patch: EntryPatch = {}
+
+  const optionText = options.text
+  if (optionText !== undefined) {
+    const text = yield* Effect.try({
+      try: () => validateText(optionText),
+      catch: normalizeSlogError,
+    })
+    patch = { ...patch, text }
+  }
+
+  const optionOccurredAt = options.occurredAt
+  if (optionOccurredAt !== undefined) {
+    const occurredAt = yield* Effect.try({
+      try: () => validateOffsetTimestamp(optionOccurredAt, 'occurred_at'),
+      catch: normalizeSlogError,
+    })
+    patch = { ...patch, occurred_at: occurredAt }
+  }
+
+  if (hasClearOccurredAt) patch = { ...patch, occurred_at: null }
+
+  return patch
+})
+
+function editPatchChangesEntry(entry: Entry, patch: EntryPatch): boolean {
+  if (patch.text !== undefined && patch.text !== entry.text) return true
+  if ('occurred_at' in patch) {
+    if (patch.occurred_at === null) return entry.occurred_at !== undefined
+    if (patch.occurred_at !== undefined) {
+      return patch.occurred_at !== entry.occurred_at
+    }
+  }
+  return false
+}
+
 const findEntryByFullId = Effect.fn('slog.findEntryByFullId')(function* (
   id: string,
 ) {
@@ -297,7 +388,11 @@ const findEntryByFullId = Effect.fn('slog.findEntryByFullId')(function* (
   const entry = yield* repo.findById(fullId)
   if (!entry) {
     return yield* Effect.fail(
-      new SlogError('entry_not_found', 'No entry exists with the supplied id.'),
+      new SlogError(
+        'entry_not_found',
+        'No entry exists with the supplied id.',
+        [{ path: '', code: 'entry_id', message: fullId }],
+      ),
     )
   }
   return entry
@@ -753,6 +848,14 @@ export function addCommandProgram(
   return Effect.gen(function* () {
     const entry = yield* addEntryProgram(options)
     yield* Console.log(entry.id)
+  })
+}
+
+export function editCommandProgram(
+  options: EditEntryOptions,
+): Effect.Effect<void, SlogError, EntryRepository> {
+  return Effect.gen(function* () {
+    yield* Console.log(yield* editEntryProgram(options))
   })
 }
 
