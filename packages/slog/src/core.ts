@@ -46,6 +46,21 @@ export interface MachineEntryEnvelope {
   readonly warnings: ReadonlyArray<MachineWarning>
 }
 
+export type CreateEntryAuthorityMode =
+  | 'delegated'
+  | 'discretionary'
+  | 'observed'
+  | 'imported'
+
+export interface CreateEntryInput {
+  readonly text: string
+  readonly actor: string
+  readonly authorityMode: CreateEntryAuthorityMode
+  readonly authoritySource?: string | undefined
+  readonly occurredAt?: string | undefined
+  readonly needsTriage?: boolean | undefined
+}
+
 export interface MachineListEnvelope {
   readonly entries: ReadonlyArray<Entry>
   readonly warnings: ReadonlyArray<MachineWarning>
@@ -74,6 +89,65 @@ interface MachineUpdatePayload {
   readonly id: string
   readonly patch: EntryPatch
 }
+
+export const createEntry = Effect.fn('slog.createEntry')(function* (
+  input: CreateEntryInput,
+) {
+  const clock = yield* FixedClock
+  const ids = yield* IdGenerator
+  const repo = yield* EntryRepository
+  const now = yield* clock.now
+  const generatedId = yield* ids.next(now)
+  const warnings: MachineWarning[] = []
+  let needsTriage = input.needsTriage ?? input.authorityMode !== 'delegated'
+
+  if (input.authorityMode === ('direct' as CreateEntryAuthorityMode)) {
+    return yield* Effect.fail(
+      new SlogError(
+        'validation_failed',
+        'authorityMode must not be direct for typed createEntry.',
+      ),
+    )
+  }
+
+  if (needsTriage === false && input.authorityMode !== 'delegated') {
+    needsTriage = true
+    warnings.push({
+      code: 'needs_triage_forced',
+      message: 'Only direct and delegated entries may be created as settled.',
+    })
+  }
+
+  const entry = yield* Effect.try({
+    try: () =>
+      new Entry({
+        id: validateFullUlid(generatedId),
+        created_at: formatLocalIso(now),
+        ...(input.occurredAt !== undefined
+          ? {
+              occurred_at: validateOffsetTimestamp(
+                input.occurredAt,
+                'occurredAt',
+              ),
+            }
+          : {}),
+        text: validateText(input.text),
+        actor: validateIdentity(input.actor, 'actor'),
+        authority: {
+          source: validateIdentity(
+            input.authoritySource ?? input.actor,
+            'authoritySource',
+          ),
+          mode: input.authorityMode,
+        },
+        needs_triage: needsTriage,
+      }),
+    catch: normalizeSlogError,
+  })
+
+  yield* repo.append(entry)
+  return { entry, warnings }
+})
 
 export const addEntryProgram = Effect.fn('slog.addEntry')(function* (
   options: AddEntryOptions,

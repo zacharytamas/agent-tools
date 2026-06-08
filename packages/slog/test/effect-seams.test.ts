@@ -7,6 +7,7 @@ import {
 } from '../src/cli-commands.js'
 import {
   addEntryProgram,
+  createEntry,
   editEntryProgram,
   listEntriesProgram,
   machineCreateCommandProgram,
@@ -128,6 +129,138 @@ function testLayer(
 }
 
 describe('slog Effect-native command programs', () => {
+  test('typed createEntry defaults authoritySource to actor when omitted', async () => {
+    const writes: Entry[] = []
+
+    const result = await Effect.runPromise(
+      createEntry({
+        text: 'Typed entry default source',
+        actor: 'hermes:hightower',
+        authorityMode: 'discretionary',
+      }).pipe(Effect.provide(testLayer(writes))),
+    )
+
+    expect(result.entry).toMatchObject({
+      id: fixedId,
+      created_at: formatLocalIso(fixedNow),
+      text: 'Typed entry default source',
+      actor: 'hermes:hightower',
+      authority: { source: 'hermes:hightower', mode: 'discretionary' },
+      needs_triage: true,
+    })
+    expect(result.warnings).toEqual([])
+    expect(writes).toEqual([result.entry])
+  })
+
+  test('typed createEntry preserves explicit authoritySource', async () => {
+    const writes: Entry[] = []
+
+    const result = await Effect.runPromise(
+      createEntry({
+        text: 'Typed entry explicit source',
+        actor: 'hermes:hightower',
+        authorityMode: 'delegated',
+        authoritySource: 'zachary',
+      }).pipe(Effect.provide(testLayer(writes))),
+    )
+
+    expect(result.entry.authority).toEqual({
+      source: 'zachary',
+      mode: 'delegated',
+    })
+    expect(result.entry.needs_triage).toBe(false)
+    expect(result.warnings).toEqual([])
+  })
+
+  test('typed createEntry forces discretionary needsTriage false to triage with warning', async () => {
+    const writes: Entry[] = []
+
+    const result = await Effect.runPromise(
+      createEntry({
+        text: 'Typed discretionary settled intent',
+        actor: 'hermes:hightower',
+        authorityMode: 'discretionary',
+        needsTriage: false,
+      }).pipe(Effect.provide(testLayer(writes))),
+    )
+
+    expect(result.entry.needs_triage).toBe(true)
+    expect(result.warnings).toEqual([
+      {
+        code: 'needs_triage_forced',
+        message: 'Only direct and delegated entries may be created as settled.',
+      },
+    ])
+  })
+
+  test('typed createEntry leaves delegated needsTriage false settled without warning', async () => {
+    const writes: Entry[] = []
+
+    const result = await Effect.runPromise(
+      createEntry({
+        text: 'Typed delegated settled intent',
+        actor: 'hermes:hightower',
+        authorityMode: 'delegated',
+        authoritySource: 'zachary',
+        needsTriage: false,
+      }).pipe(Effect.provide(testLayer(writes))),
+    )
+
+    expect(result.entry.needs_triage).toBe(false)
+    expect(result.warnings).toEqual([])
+  })
+
+  test('typed createEntry rejects empty text as validation_failed', async () => {
+    expect(
+      Effect.runPromise(
+        createEntry({
+          text: '   ',
+          actor: 'hermes:hightower',
+          authorityMode: 'delegated',
+          authoritySource: 'zachary',
+        }).pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message: 'text must be non-empty.',
+    })
+  })
+
+  test('typed createEntry rejects bad actor identity as validation_failed', async () => {
+    expect(
+      Effect.runPromise(
+        createEntry({
+          text: 'Bad actor identity',
+          actor: ' hermes:hightower',
+          authorityMode: 'delegated',
+          authoritySource: 'zachary',
+        }).pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message:
+        'actor must be a non-empty string without leading/trailing whitespace or control characters.',
+    })
+  })
+
+  test('typed createEntry rejects invalid occurredAt offset timestamp', async () => {
+    expect(
+      Effect.runPromise(
+        createEntry({
+          text: 'Bad occurredAt',
+          actor: 'hermes:hightower',
+          authorityMode: 'delegated',
+          authoritySource: 'zachary',
+          occurredAt: '2026-06-05T10:42:00Z',
+        }).pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message:
+        'occurredAt must be an ISO 8601 timestamp with an explicit offset.',
+    })
+  })
+
   test('human edit --text updates text and prints mutation line', async () => {
     const writes: Entry[] = [entryFixture({ needs_triage: true })]
 
