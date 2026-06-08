@@ -60,6 +60,7 @@ export function validateIdentity(value: string, path: string): string {
   if (
     value.length === 0 ||
     value.trim() !== value ||
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matches C0/DEL control characters to reject them in identity values
     /[\u0000-\u001f\u007f]/.test(value)
   ) {
     throw new SlogError(

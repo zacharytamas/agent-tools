@@ -464,10 +464,21 @@ function parseMachineCreatePayload(payloadText: string): MachineCreatePayload {
 
   if (details.length > 0) throw validationFailed(details)
 
+  if (
+    text === undefined ||
+    actor === undefined ||
+    authoritySource === undefined ||
+    authorityMode === undefined
+  ) {
+    throw new Error(
+      'Invariant violated: validation completed without populating required fields.',
+    )
+  }
+
   return {
-    text: text!,
-    actor: actor!,
-    authority: { source: authoritySource!, mode: authorityMode! },
+    text,
+    actor,
+    authority: { source: authoritySource, mode: authorityMode },
     ...(typeof needsTriageValue === 'boolean'
       ? { needs_triage: needsTriageValue }
       : {}),
