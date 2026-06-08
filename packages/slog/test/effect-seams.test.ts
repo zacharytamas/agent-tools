@@ -20,6 +20,7 @@ import {
   resolveTriageEntryProgram,
   showEntryProgram,
   triageEntriesProgram,
+  updateEntry,
 } from '../src/core.js'
 import { type Entry, SlogError } from '../src/domain.js'
 import {
@@ -129,6 +130,78 @@ function testLayer(
 }
 
 describe('slog Effect-native command programs', () => {
+  test('typed updateEntry updates text and returns entry envelope', async () => {
+    const entry = entryFixture({ text: 'Original typed update text' })
+    const writes: Entry[] = [entry]
+
+    const result = await Effect.runPromise(
+      updateEntry({ id: fixedId, text: ' Updated typed text ' }).pipe(
+        Effect.provide(testLayer(writes)),
+      ),
+    )
+
+    expect(result).toEqual({
+      entry: { ...entry, text: 'Updated typed text' },
+      warnings: [],
+    })
+    expect(writes[0].text).toBe('Updated typed text')
+  })
+
+  test('typed updateEntry clears occurredAt with null', async () => {
+    const entry = entryFixture({ occurred_at: '2026-06-05T10:42:00-04:00' })
+    const writes: Entry[] = [entry]
+
+    const result = await Effect.runPromise(
+      updateEntry({ id: fixedId, occurredAt: null }).pipe(
+        Effect.provide(testLayer(writes)),
+      ),
+    )
+
+    expect(result.entry).not.toHaveProperty('occurred_at')
+    expect(result.warnings).toEqual([])
+    expect(writes[0]).not.toHaveProperty('occurred_at')
+  })
+
+  test('typed updateEntry sets needsTriage', async () => {
+    const entry = entryFixture({ needs_triage: false })
+    const writes: Entry[] = [entry]
+
+    const result = await Effect.runPromise(
+      updateEntry({ id: fixedId, needsTriage: true }).pipe(
+        Effect.provide(testLayer(writes)),
+      ),
+    )
+
+    expect(result.entry.needs_triage).toBe(true)
+    expect(result.warnings).toEqual([])
+    expect(writes[0].needs_triage).toBe(true)
+  })
+
+  test('typed updateEntry rejects empty patch', async () => {
+    expect(
+      Effect.runPromise(
+        updateEntry({ id: fixedId }).pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message:
+        'updateEntry requires at least one of text, occurredAt, or needsTriage.',
+    })
+  })
+
+  test('typed updateEntry propagates entry_not_found for non-existent id', async () => {
+    expect(
+      Effect.runPromise(
+        updateEntry({ id: missingId, text: 'Missing typed update' }).pipe(
+          Effect.provide(testLayer([])),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: 'entry_not_found',
+      message: 'No entry exists with the supplied id.',
+    })
+  })
+
   test('typed createEntry defaults authoritySource to actor when omitted', async () => {
     const writes: Entry[] = []
 

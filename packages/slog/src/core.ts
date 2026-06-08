@@ -61,6 +61,13 @@ export interface CreateEntryInput {
   readonly needsTriage?: boolean | undefined
 }
 
+export interface UpdateEntryInput {
+  readonly id: string
+  readonly text?: string | undefined
+  readonly occurredAt?: string | null | undefined
+  readonly needsTriage?: boolean | undefined
+}
+
 export interface MachineListEnvelope {
   readonly entries: ReadonlyArray<Entry>
   readonly warnings: ReadonlyArray<MachineWarning>
@@ -147,6 +154,15 @@ export const createEntry = Effect.fn('slog.createEntry')(function* (
 
   yield* repo.append(entry)
   return { entry, warnings }
+})
+
+export const updateEntry = Effect.fn('slog.updateEntry')(function* (
+  input: UpdateEntryInput,
+) {
+  const patch = yield* buildTypedUpdatePatch(input)
+  const repo = yield* EntryRepository
+  const entry = yield* repo.updateExisting(input.id, patch)
+  return { entry, warnings: [] }
 })
 
 export const addEntryProgram = Effect.fn('slog.addEntry')(function* (
@@ -347,6 +363,57 @@ export const machineShowEntryProgram = Effect.fn('slog.machineShowEntry')(
     return { entry, warnings: [] }
   },
 )
+
+const buildTypedUpdatePatch = Effect.fn('slog.buildTypedUpdatePatch')(function* (
+  input: UpdateEntryInput,
+) {
+  const hasText = input.text !== undefined
+  const hasOccurredAt = input.occurredAt !== undefined
+  const hasNeedsTriage = input.needsTriage !== undefined
+
+  if (!(hasText || hasOccurredAt || hasNeedsTriage)) {
+    return yield* Effect.fail(
+      new SlogError(
+        'validation_failed',
+        'updateEntry requires at least one of text, occurredAt, or needsTriage.',
+      ),
+    )
+  }
+
+  yield* Effect.try({
+    try: () => validateFullUlid(input.id),
+    catch: normalizeSlogError,
+  })
+
+  let patch: EntryPatch = {}
+
+  const inputText = input.text
+  if (inputText !== undefined) {
+    const text = yield* Effect.try({
+      try: () => validateText(inputText),
+      catch: normalizeSlogError,
+    })
+    patch = { ...patch, text }
+  }
+
+  if ('occurredAt' in input) {
+    if (input.occurredAt === null) {
+      patch = { ...patch, occurred_at: null }
+    } else if (input.occurredAt !== undefined) {
+      const occurredAt = yield* Effect.try({
+        try: () => validateOffsetTimestamp(input.occurredAt as string, 'occurredAt'),
+        catch: normalizeSlogError,
+      })
+      patch = { ...patch, occurred_at: occurredAt }
+    }
+  }
+
+  if (input.needsTriage !== undefined) {
+    patch = { ...patch, needs_triage: input.needsTriage }
+  }
+
+  return patch
+})
 
 const buildHumanEditPatch = Effect.fn('slog.buildHumanEditPatch')(function* (
   options: EditEntryOptions,
