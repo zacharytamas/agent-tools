@@ -425,6 +425,76 @@ describe('slog storage mutation foundation', () => {
     })
   })
 
+  test('deleteById removes the matching record and preserves valid JSONL for other records', async () => {
+    const slogHome = await makeHome()
+    const target = makeEntry()
+    const other = makeEntry({
+      id: otherId,
+      created_at: formatLocalIso(laterNow),
+      text: 'Other entry text',
+      needs_triage: true,
+    })
+    const otherLine = JSON.stringify(other)
+    const path = await writePartition(slogHome, baseNow, [
+      JSON.stringify(target),
+      otherLine,
+    ])
+
+    await runRepo(slogHome, (repo) => repo.deleteById(targetId))
+
+    const lines = (await readFile(path, 'utf8')).trimEnd().split('\n')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toBe(otherLine)
+    expect(JSON.parse(lines[0])).toEqual(other)
+  })
+
+  test('deleteById fails entry_not_found when the owning partition is missing', async () => {
+    const slogHome = await makeHome()
+
+    expect(
+      runRepo(slogHome, (repo) => repo.deleteById(targetId)),
+    ).rejects.toMatchObject({
+      code: 'entry_not_found',
+      message: 'No entry exists with the supplied id.',
+      details: [],
+    })
+  })
+
+  test('deleteById fails entry_not_found when id is absent from an existing partition', async () => {
+    const slogHome = await makeHome()
+    await writeEntries(slogHome, [makeEntry({ id: otherId })])
+
+    expect(
+      runRepo(slogHome, (repo) => repo.deleteById(targetId)),
+    ).rejects.toMatchObject({
+      code: 'entry_not_found',
+      message: 'No entry exists with the supplied id.',
+      details: [],
+    })
+  })
+
+  test('deleteById detects duplicate ids as storage_corrupt and does not rewrite', async () => {
+    const slogHome = await makeHome()
+    const first = makeEntry({ text: 'Duplicate one' })
+    const second = makeEntry({ text: 'Duplicate two', needs_triage: true })
+    const path = await writeEntries(slogHome, [first, second])
+    const before = await readFile(path, 'utf8')
+
+    expect(
+      runRepo(slogHome, (repo) => repo.deleteById(targetId)),
+    ).rejects.toMatchObject({
+      code: 'storage_corrupt',
+      details: [
+        {
+          path,
+          code: 'duplicate_entry_id',
+        },
+        { path: '', code: 'entry_id', message: targetId },
+      ],
+    })
+    expect(await readFile(path, 'utf8')).toBe(before)
+  })
+
   test('updateExisting rewrites through temp and rename without leftover temp files and leaves valid JSONL', async () => {
     const slogHome = await makeHome()
     const path = await writeEntries(slogHome, [makeEntry()])

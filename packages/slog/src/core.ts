@@ -190,6 +190,17 @@ export const listEntries = Effect.fn('slog.listEntries')(function* (
   return entries.filter((entry) => entryMatchesFilter(entry, filter))
 })
 
+export const deleteEntry = Effect.fn('slog.deleteEntry')(function* (
+  id: string,
+) {
+  const repo = yield* EntryRepository
+  const fullId = yield* Effect.try({
+    try: () => validateFullUlid(id),
+    catch: normalizeSlogError,
+  })
+  yield* repo.deleteById(fullId)
+})
+
 export const addEntryProgram = Effect.fn('slog.addEntry')(function* (
   options: AddEntryOptions,
 ) {

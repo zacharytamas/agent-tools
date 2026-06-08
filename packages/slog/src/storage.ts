@@ -38,6 +38,7 @@ export interface EntryRepositoryShape {
     id: string,
     patch: EntryPatch,
   ) => Effect.Effect<Entry, SlogError>
+  readonly deleteById: (id: string) => Effect.Effect<void, SlogError>
 }
 
 interface StoredEntryRecord {
@@ -175,6 +176,35 @@ export const LiveEntryRepositoryLayer = Layer.effect(
       },
     )
 
+    const deleteById = Effect.fn('slog.EntryRepository.deleteById')(function* (
+      id: string,
+    ) {
+      const date = yield* decodeIdPartitionDate(id)
+      yield* partitionLock.withLock(
+        date,
+        Effect.gen(function* () {
+          const path = dailyEntryPath(config.home, date)
+          const records = yield* readPartitionRecords(path, 'not_found')
+          const matchingIndexes = records.flatMap((record, index) =>
+            record.entry.id === id ? [index] : [],
+          )
+
+          if (matchingIndexes.length === 0) {
+            return yield* Effect.fail(entryNotFoundError())
+          }
+          if (matchingIndexes.length > 1) {
+            return yield* Effect.fail(duplicateEntryIdError(path, id))
+          }
+
+          const matchIndex = matchingIndexes[0]
+          const nextLines = records
+            .filter((_, index) => index !== matchIndex)
+            .map((record) => record.line)
+          yield* rewritePartition(path, nextLines)
+        }),
+      )
+    })
+
     return {
       append,
       listByCreatedAtDateRange,
@@ -183,6 +213,7 @@ export const LiveEntryRepositoryLayer = Layer.effect(
       listAllTriage,
       findById,
       updateExisting,
+      deleteById,
     }
   }),
 )

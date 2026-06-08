@@ -8,6 +8,7 @@ import {
 import {
   addEntryProgram,
   createEntry,
+  deleteEntry,
   editEntryProgram,
   listEntries,
   listEntriesProgram,
@@ -139,6 +140,19 @@ function testLayer(
           if (patch.occurred_at === null) delete updated.occurred_at
           writes[index] = updated
           return updated
+        }),
+      deleteById: (entryId) =>
+        Effect.gen(function* () {
+          const index = writes.findIndex((entry) => entry.id === entryId)
+          if (index < 0) {
+            return yield* Effect.fail(
+              new SlogError(
+                'entry_not_found',
+                'No entry exists with the supplied id.',
+              ),
+            )
+          }
+          writes.splice(index, 1)
         }),
     }),
   )
@@ -324,6 +338,38 @@ describe('slog Effect-native command programs', () => {
     ).rejects.toMatchObject({
       code: 'entry_not_found',
       message: 'No entry exists with the supplied id.',
+    })
+  })
+
+  test('typed deleteEntry removes an existing entry', async () => {
+    const entry = entryFixture({ text: 'Entry to delete' })
+    const writes: Entry[] = [entry]
+
+    await Effect.runPromise(
+      deleteEntry(entry.id).pipe(Effect.provide(testLayer(writes))),
+    )
+
+    expect(writes).toHaveLength(0)
+  })
+
+  test('typed deleteEntry propagates entry_not_found for non-existent id', async () => {
+    expect(
+      Effect.runPromise(
+        deleteEntry(missingId).pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'entry_not_found',
+      message: 'No entry exists with the supplied id.',
+    })
+  })
+
+  test('typed deleteEntry rejects an invalid ULID with validation_failed', async () => {
+    expect(
+      Effect.runPromise(
+        deleteEntry('not-a-ulid').pipe(Effect.provide(testLayer([]))),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
     })
   })
 
