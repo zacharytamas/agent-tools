@@ -5,6 +5,6 @@
     "outDir": "dist",
     "plugins": [{ "name": "@effect/language-service" }]
   },
-  "include": ["src"],
+  "include": ["src", "test"],
   "exclude": ["node_modules", "dist"]
 }
