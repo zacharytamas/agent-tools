@@ -16,7 +16,7 @@ import {
   resolveTriageCommandProgram,
   showCommandProgram,
   triageCommandProgram,
-} from './commands.js'
+} from './cli-commands.js'
 import { SlogError } from './domain.js'
 import {
   LiveClockLayer,

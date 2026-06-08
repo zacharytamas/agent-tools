@@ -2,13 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import { Effect, Layer } from 'effect'
 import { duplicateEntryJsonError } from '../src/cli.js'
 import {
-  addEntryProgram,
   editCommandProgram,
+  machineErrorEnvelope,
+} from '../src/cli-commands.js'
+import {
+  addEntryProgram,
   editEntryProgram,
   listEntriesProgram,
   machineCreateCommandProgram,
   machineCreateEntryProgram,
-  machineErrorEnvelope,
   machineListEntriesProgram,
   machineShowEntryProgram,
   machineUpdateCommandProgram,
@@ -17,7 +19,7 @@ import {
   resolveTriageEntryProgram,
   showEntryProgram,
   triageEntriesProgram,
-} from '../src/commands.js'
+} from '../src/core.js'
 import { type Entry, SlogError } from '../src/domain.js'
 import {
   FixedClock,
