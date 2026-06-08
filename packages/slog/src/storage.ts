@@ -22,6 +22,10 @@ export interface EntryPatch {
 
 export interface EntryRepositoryShape {
   readonly append: (entry: Entry) => Effect.Effect<void, SlogError>
+  readonly listByCreatedAtDateRange: (
+    start: Date,
+    end: Date,
+  ) => Effect.Effect<ReadonlyArray<Entry>, SlogError>
   readonly listToday: (
     date: Date,
   ) => Effect.Effect<ReadonlyArray<Entry>, SlogError>
@@ -84,6 +88,25 @@ export const LiveEntryRepositoryLayer = Layer.effect(
       date: Date,
     ) {
       return yield* readEntries(date)
+    })
+
+    const listByCreatedAtDateRange = Effect.fn(
+      'slog.EntryRepository.listByCreatedAtDateRange',
+    )(function* (start: Date, end: Date) {
+      const startStamp = localDateStamp(start)
+      const endStamp = localDateStamp(end)
+      const [minStamp, maxStamp] =
+        startStamp <= endStamp ? [startStamp, endStamp] : [endStamp, startStamp]
+      const paths = yield* listDailyEntryPartitionPaths(config.home)
+      const entries: Entry[] = []
+      for (const path of paths) {
+        const partitionStamp = pathDateStamp(path)
+        if (partitionStamp < minStamp || partitionStamp > maxStamp) continue
+        const records = yield* readPartitionRecords(path, 'empty')
+        yield* ensureNoDuplicateEntryIds(path, records)
+        entries.push(...records.map((record) => record.entry))
+      }
+      return entries
     })
 
     const listTriageToday = Effect.fn('slog.EntryRepository.listTriageToday')(
@@ -154,6 +177,7 @@ export const LiveEntryRepositoryLayer = Layer.effect(
 
     return {
       append,
+      listByCreatedAtDateRange,
       listToday,
       listTriageToday,
       listAllTriage,
@@ -168,6 +192,20 @@ export function dailyEntryPath(slogHome: string, date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return join(slogHome, 'entries', year, month, `${day}.jsonl`)
+}
+
+function localDateStamp(date: Date): string {
+  const year = String(date.getFullYear()).padStart(4, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function pathDateStamp(path: string): string {
+  const day = basename(path, '.jsonl')
+  const month = basename(dirname(path))
+  const year = basename(dirname(dirname(path)))
+  return `${year}-${month}-${day}`
 }
 
 const yearDirectoryName = /^\d{4}$/

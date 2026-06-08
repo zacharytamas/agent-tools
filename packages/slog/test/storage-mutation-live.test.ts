@@ -10,8 +10,14 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Effect, Layer } from 'effect'
+import { listEntries } from '../src/core.js'
 import type { Entry, SlogError } from '../src/domain.js'
-import { formatLocalIso, generateUlid, SlogConfig } from '../src/environment.js'
+import {
+  FixedClock,
+  formatLocalIso,
+  generateUlid,
+  SlogConfig,
+} from '../src/environment.js'
 import {
   LivePartitionLockLayer,
   makeLivePartitionLockLayer,
@@ -98,6 +104,13 @@ async function runRepo<A>(
       const repo = yield* EntryRepository
       return yield* effect(repo)
     }).pipe(Effect.provide(storageLayer(slogHome))),
+  )
+}
+
+function coreLayer(slogHome: string) {
+  return Layer.mergeAll(
+    storageLayer(slogHome),
+    Layer.succeed(FixedClock, { now: Effect.succeed(baseNow) }),
   )
 }
 
@@ -358,6 +371,55 @@ describe('slog storage mutation foundation', () => {
           path,
           code: 'duplicate_entry_id',
         },
+        { path: '', code: 'entry_id', message: targetId },
+      ],
+    })
+  })
+
+  test('typed listEntries dateRange scans entries across multiple daily partitions', async () => {
+    const slogHome = await makeHome()
+    const yesterday = new Date('2026-06-04T12:00:00-04:00')
+    const tomorrow = new Date('2026-06-06T10:30:00-04:00')
+    const yesterdayEntry = makeEntry({
+      id: `${generateUlid(yesterday).slice(0, 10)}YYYYYYYYYYYYYYYY`,
+      created_at: formatLocalIso(yesterday),
+      text: 'Yesterday in typed range',
+    })
+    const todayEntry = makeEntry({ text: 'Today in typed range' })
+    const tomorrowEntry = makeEntry({
+      id: `${generateUlid(tomorrow).slice(0, 10)}TTTTTTTTTTTTTTTT`,
+      created_at: formatLocalIso(tomorrow),
+      text: 'Tomorrow outside typed range',
+    })
+    await writeEntries(slogHome, [todayEntry])
+    await writeEntries(slogHome, [yesterdayEntry], yesterday)
+    await writeEntries(slogHome, [tomorrowEntry], tomorrow)
+
+    const listed = await Effect.runPromise(
+      listEntries({ dateRange: { start: yesterday, end: baseNow } }).pipe(
+        Effect.provide(coreLayer(slogHome)),
+      ),
+    )
+
+    expect(listed).toEqual([yesterdayEntry, todayEntry])
+  })
+
+  test('typed listEntries dateRange fails storage_corrupt on duplicate id in scanned partition', async () => {
+    const slogHome = await makeHome()
+    const first = makeEntry({ text: 'Duplicate list one' })
+    const second = makeEntry({ text: 'Duplicate list two' })
+    const path = await writeEntries(slogHome, [first, second])
+
+    expect(
+      Effect.runPromise(
+        listEntries({ dateRange: { start: baseNow, end: baseNow } }).pipe(
+          Effect.provide(coreLayer(slogHome)),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: 'storage_corrupt',
+      details: [
+        { path, code: 'duplicate_entry_id' },
         { path: '', code: 'entry_id', message: targetId },
       ],
     })

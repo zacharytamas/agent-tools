@@ -68,6 +68,20 @@ export interface UpdateEntryInput {
   readonly needsTriage?: boolean | undefined
 }
 
+export interface EntryFilter {
+  readonly dateRange?:
+    | {
+        readonly start: Date
+        readonly end: Date
+      }
+    | undefined
+  readonly needsTriage?: boolean | undefined
+  readonly actor?: string | undefined
+  readonly authoritySource?: string | undefined
+  readonly authorityMode?: AuthorityMode | undefined
+  readonly textQuery?: string | undefined
+}
+
 export interface MachineListEnvelope {
   readonly entries: ReadonlyArray<Entry>
   readonly warnings: ReadonlyArray<MachineWarning>
@@ -163,6 +177,17 @@ export const updateEntry = Effect.fn('slog.updateEntry')(function* (
   const repo = yield* EntryRepository
   const entry = yield* repo.updateExisting(input.id, patch)
   return { entry, warnings: [] }
+})
+
+export const listEntries = Effect.fn('slog.listEntries')(function* (
+  filter: EntryFilter = {},
+) {
+  const clock = yield* FixedClock
+  const repo = yield* EntryRepository
+  const now = yield* clock.now
+  const range = filter.dateRange ?? { start: now, end: now }
+  const entries = yield* repo.listByCreatedAtDateRange(range.start, range.end)
+  return entries.filter((entry) => entryMatchesFilter(entry, filter))
 })
 
 export const addEntryProgram = Effect.fn('slog.addEntry')(function* (
@@ -474,6 +499,32 @@ function editPatchChangesEntry(entry: Entry, patch: EntryPatch): boolean {
     }
   }
   return false
+}
+
+function entryMatchesFilter(entry: Entry, filter: EntryFilter): boolean {
+  if (
+    filter.needsTriage !== undefined &&
+    entry.needs_triage !== filter.needsTriage
+  ) {
+    return false
+  }
+  if (filter.actor !== undefined && entry.actor !== filter.actor) return false
+  if (
+    filter.authoritySource !== undefined &&
+    entry.authority.source !== filter.authoritySource
+  ) {
+    return false
+  }
+  if (
+    filter.authorityMode !== undefined &&
+    entry.authority.mode !== filter.authorityMode
+  ) {
+    return false
+  }
+  if (filter.textQuery !== undefined) {
+    return entry.text.toLowerCase().includes(filter.textQuery.toLowerCase())
+  }
+  return true
 }
 
 const findEntryByFullId = Effect.fn('slog.findEntryByFullId')(function* (

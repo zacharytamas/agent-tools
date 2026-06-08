@@ -9,6 +9,7 @@ import {
   addEntryProgram,
   createEntry,
   editEntryProgram,
+  listEntries,
   listEntriesProgram,
   machineCreateCommandProgram,
   machineCreateEntryProgram,
@@ -28,6 +29,7 @@ import {
   formatLocalIso,
   generateUlid,
   IdGenerator,
+  localDateStamp,
   MachineInput,
   SlogConfig,
 } from '../src/environment.js'
@@ -92,6 +94,19 @@ function testLayer(
     }),
     Layer.succeed(EntryRepository, {
       append: (entry) => Effect.sync(() => writes.push(entry)),
+      listByCreatedAtDateRange: (start, end) =>
+        Effect.succeed(
+          writes.filter((entry) => {
+            const stamp = localDateStamp(new Date(entry.created_at))
+            const startStamp = localDateStamp(start)
+            const endStamp = localDateStamp(end)
+            const [minStamp, maxStamp] =
+              startStamp <= endStamp
+                ? [startStamp, endStamp]
+                : [endStamp, startStamp]
+            return stamp >= minStamp && stamp <= maxStamp
+          }),
+        ),
       listToday: () => Effect.succeed(writes),
       listTriageToday: () =>
         Effect.succeed(writes.filter((entry) => entry.needs_triage)),
@@ -130,6 +145,116 @@ function testLayer(
 }
 
 describe('slog Effect-native command programs', () => {
+  test('typed listEntries with no filter returns today entries only', async () => {
+    const yesterday = new Date('2026-06-04T12:00:00-04:00')
+    const yesterdayEntry = entryFixture({
+      id: `${generateUlid(yesterday).slice(0, 10)}YYYYYYYYYYYYYYYY`,
+      created_at: formatLocalIso(yesterday),
+      text: 'Yesterday typed list row',
+    })
+    const todayEntry = entryFixture({ text: 'Today typed list row' })
+
+    const result = await Effect.runPromise(
+      listEntries().pipe(
+        Effect.provide(testLayer([yesterdayEntry, todayEntry])),
+      ),
+    )
+
+    expect(result).toEqual([todayEntry])
+  })
+
+  test('typed listEntries filters by needsTriage exact match', async () => {
+    const triage = entryFixture({
+      text: 'Needs typed list triage',
+      needs_triage: true,
+    })
+    const settled = entryFixture({
+      id: laterId,
+      created_at: formatLocalIso(laterNow),
+      text: 'Settled typed list row',
+      needs_triage: false,
+    })
+
+    const result = await Effect.runPromise(
+      listEntries({ needsTriage: true }).pipe(
+        Effect.provide(testLayer([settled, triage])),
+      ),
+    )
+
+    expect(result).toEqual([triage])
+  })
+
+  test('typed listEntries filters by actor exact match', async () => {
+    const hermes = entryFixture({
+      text: 'Hermes typed list row',
+      actor: 'hermes:hightower',
+      authority: { source: 'hermes:hightower', mode: 'discretionary' },
+    })
+    const zachary = entryFixture({ text: 'Zachary typed list row' })
+
+    const result = await Effect.runPromise(
+      listEntries({ actor: 'hermes:hightower' }).pipe(
+        Effect.provide(testLayer([zachary, hermes])),
+      ),
+    )
+
+    expect(result).toEqual([hermes])
+  })
+
+  test('typed listEntries filters by authoritySource exact match', async () => {
+    const delegated = entryFixture({
+      text: 'Delegated typed list row',
+      actor: 'hermes:hightower',
+      authority: { source: 'zachary', mode: 'delegated' },
+    })
+    const discretionary = entryFixture({
+      text: 'Discretionary typed list row',
+      actor: 'hermes:hightower',
+      authority: { source: 'hermes:hightower', mode: 'discretionary' },
+    })
+
+    const result = await Effect.runPromise(
+      listEntries({ authoritySource: 'zachary' }).pipe(
+        Effect.provide(testLayer([discretionary, delegated])),
+      ),
+    )
+
+    expect(result).toEqual([delegated])
+  })
+
+  test('typed listEntries filters by authorityMode exact match', async () => {
+    const observed = entryFixture({
+      text: 'Observed typed list row',
+      authority: { source: 'external:github', mode: 'observed' },
+    })
+    const direct = entryFixture({ text: 'Direct typed list row' })
+
+    const result = await Effect.runPromise(
+      listEntries({ authorityMode: 'observed' }).pipe(
+        Effect.provide(testLayer([direct, observed])),
+      ),
+    )
+
+    expect(result).toEqual([observed])
+  })
+
+  test('typed listEntries filters textQuery as case-insensitive substring', async () => {
+    const match = entryFixture({ text: 'Reviewed Tenant Fallback PR' })
+    const miss = entryFixture({
+      id: laterId,
+      created_at: formatLocalIso(laterNow),
+      text: 'Updated deployment docs',
+    })
+
+    const result = await Effect.runPromise(
+      listEntries({ textQuery: 'tenant fallback' }).pipe(
+        Effect.provide(testLayer([miss, match])),
+      ),
+    )
+
+    expect(result).toEqual([match])
+  })
+
   test('typed updateEntry updates text and returns entry envelope', async () => {
     const entry = entryFixture({ text: 'Original typed update text' })
     const writes: Entry[] = [entry]
