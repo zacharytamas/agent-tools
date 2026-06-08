@@ -21,6 +21,7 @@ import {
 import {
   dailyEntryPath,
   EntryRepository,
+  type EntryRepositoryShape,
   LiveEntryRepositoryLayer,
 } from '../src/storage.js'
 
@@ -90,7 +91,7 @@ async function writeEntries(
 
 async function runRepo<A>(
   slogHome: string,
-  effect: (repo: EntryRepository) => Effect.Effect<A, SlogError>,
+  effect: (repo: EntryRepositoryShape) => Effect.Effect<A, SlogError>,
 ): Promise<A> {
   return await Effect.runPromise(
     Effect.gen(function* () {
@@ -179,7 +180,7 @@ describe('slog storage mutation foundation', () => {
   test('updateExisting fails entry_not_found when the owning partition is missing', async () => {
     const slogHome = await makeHome()
 
-    await expect(
+    expect(
       runRepo(slogHome, (repo) =>
         repo.updateExisting(targetId, { text: 'Cannot update missing file' }),
       ),
@@ -194,7 +195,7 @@ describe('slog storage mutation foundation', () => {
     const slogHome = await makeHome()
     await writeEntries(slogHome, [makeEntry({ id: otherId })])
 
-    await expect(
+    expect(
       runRepo(slogHome, (repo) =>
         repo.updateExisting(targetId, { text: 'Cannot update absent id' }),
       ),
@@ -212,7 +213,7 @@ describe('slog storage mutation foundation', () => {
     const path = await writeEntries(slogHome, [first, second])
     const before = await readFile(path, 'utf8')
 
-    await expect(
+    expect(
       runRepo(slogHome, (repo) =>
         repo.updateExisting(targetId, { text: 'Must not be written' }),
       ),
@@ -236,7 +237,7 @@ describe('slog storage mutation foundation', () => {
       makeEntry({ text: 'Duplicate two' }),
     ])
 
-    await expect(
+    expect(
       runRepo(slogHome, (repo) => repo.findById(targetId)),
     ).rejects.toMatchObject({
       code: 'storage_corrupt',
@@ -257,7 +258,7 @@ describe('slog storage mutation foundation', () => {
       makeEntry({ text: 'Duplicate two' }),
     ])
 
-    await expect(
+    expect(
       runRepo(slogHome, (repo) => repo.listToday(baseNow)),
     ).rejects.toMatchObject({
       code: 'storage_corrupt',
@@ -304,9 +305,9 @@ describe('slog storage mutation foundation', () => {
 
   test('listAllTriage scans unresolved triage across daily partitions and treats a missing entries dir as empty', async () => {
     const emptyHome = await makeHome()
-    await expect(
-      runRepo(emptyHome, (repo) => repo.listAllTriage()),
-    ).resolves.toEqual([])
+    expect(runRepo(emptyHome, (repo) => repo.listAllTriage())).resolves.toEqual(
+      [],
+    )
 
     const slogHome = await makeHome()
     const yesterday = new Date('2026-06-04T12:00:00-04:00')
@@ -348,7 +349,7 @@ describe('slog storage mutation foundation', () => {
     })
     const path = await writeEntries(slogHome, [duplicateOne, duplicateTwo])
 
-    await expect(
+    expect(
       runRepo(slogHome, (repo) => repo.listAllTriage()),
     ).rejects.toMatchObject({
       code: 'storage_corrupt',
@@ -439,9 +440,7 @@ describe('slog PartitionLock live layer', () => {
     )
 
     expect(result).toEqual(['first', 'second'])
-    await expect(
-      stat(partitionLockPath(slogHome, baseNow)),
-    ).rejects.toMatchObject({
+    expect(stat(partitionLockPath(slogHome, baseNow))).rejects.toMatchObject({
       code: 'ENOENT',
     })
   })
@@ -475,7 +474,7 @@ describe('slog PartitionLock live layer', () => {
     )
 
     expect(result).toBe('reclaimed')
-    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   test('withLock fails with partition_locked within the bounded timeout for a fresh held lock', async () => {
@@ -492,7 +491,7 @@ describe('slog PartitionLock live layer', () => {
     )
     const started = Date.now()
 
-    await expect(
+    expect(
       Effect.runPromise(
         Effect.gen(function* () {
           const lock = yield* PartitionLock

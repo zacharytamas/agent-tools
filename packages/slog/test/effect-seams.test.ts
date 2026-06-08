@@ -51,7 +51,7 @@ function entryFixture(overrides: Partial<Entry> = {}): Entry {
 }
 
 async function captureConsoleLog(
-  effect: Effect.Effect<void, SlogError, EntryRepository>,
+  effect: Effect.Effect<void, SlogError>,
 ): Promise<ReadonlyArray<string>> {
   const lines: string[] = []
   const originalLog = console.log
@@ -190,7 +190,7 @@ describe('slog Effect-native command programs', () => {
       resolveTriageEntryProgram,
       reopenTriageEntryProgram,
     ]) {
-      await expect(
+      expect(
         Effect.runPromise(
           program(missingId).pipe(Effect.provide(testLayer([]))),
         ),
@@ -278,7 +278,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('human edit rejects missing flags', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         editEntryProgram({ id: fixedId }).pipe(Effect.provide(testLayer([]))),
       ),
@@ -290,7 +290,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('human edit rejects mutually exclusive occurred-at flags', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         editEntryProgram({
           id: fixedId,
@@ -305,7 +305,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('human edit rejects empty text', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         editEntryProgram({ id: fixedId, text: '   ' }).pipe(
           Effect.provide(testLayer([])),
@@ -318,7 +318,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('human edit rejects invalid occurred_at', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         editEntryProgram({ id: fixedId, occurredAt: 'yesterday' }).pipe(
           Effect.provide(testLayer([])),
@@ -332,7 +332,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('human edit rejects invalid id as validation_failed', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         editEntryProgram({ id: 'not-a-ulid', text: 'Valid text' }).pipe(
           Effect.provide(testLayer([])),
@@ -345,7 +345,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('human edit propagates entry_not_found for absent full ULID', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         editEntryProgram({ id: missingId, text: 'Missing' }).pipe(
           Effect.provide(testLayer([])),
@@ -492,7 +492,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON rejects empty changes because at least one allowed change is required', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: fixedId, changes: {} }),
@@ -511,7 +511,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON rejects forbidden and unknown keys in changes with detail paths', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({
@@ -540,7 +540,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON rejects unknown top-level keys', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: fixedId, changes: { text: 'ok' }, bogus: true }),
@@ -553,7 +553,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON rejects invalid id at path id', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: 'not-a-ulid', changes: { text: 'ok' } }),
@@ -566,7 +566,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON rejects null and empty text changes', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: fixedId, changes: { text: null } }),
@@ -577,7 +577,7 @@ describe('slog Effect-native command programs', () => {
       details: [{ path: 'changes.text', code: 'invalid_type' }],
     })
 
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: fixedId, changes: { text: '   ' } }),
@@ -590,7 +590,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON rejects numeric and malformed occurred_at changes', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: fixedId, changes: { occurred_at: 123 } }),
@@ -601,7 +601,7 @@ describe('slog Effect-native command programs', () => {
       details: [{ path: 'changes.occurred_at', code: 'invalid_type' }],
     })
 
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({
@@ -617,7 +617,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON rejects non-boolean needs_triage changes', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: fixedId, changes: { needs_triage: 'false' } }),
@@ -630,7 +630,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine update JSON propagates entry_not_found and renders standard error envelope', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineUpdateEntryProgram(
           JSON.stringify({ id: missingId, changes: { text: 'Missing' } }),
@@ -778,7 +778,7 @@ describe('slog Effect-native command programs', () => {
       needs_triage: false,
     }
 
-    await expect(
+    expect(
       Effect.runPromise(
         machineShowEntryProgram('not-a-ulid').pipe(
           Effect.provide(testLayer([entry])),
@@ -790,7 +790,7 @@ describe('slog Effect-native command programs', () => {
       details: [],
     })
 
-    await expect(
+    expect(
       Effect.runPromise(
         machineShowEntryProgram(missingId).pipe(
           Effect.provide(testLayer([entry])),
@@ -802,7 +802,7 @@ describe('slog Effect-native command programs', () => {
       details: [{ path: '', code: 'entry_id', message: missingId }],
     })
 
-    await expect(
+    expect(
       Effect.runPromise(
         machineShowEntryProgram(fixedId).pipe(
           Effect.provide(testLayer([entry])),
@@ -812,7 +812,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('machine create JSON rejects forbidden generated fields with validation details', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         machineCreateEntryProgram(
           JSON.stringify({
@@ -915,7 +915,7 @@ describe('slog Effect-native command programs', () => {
   })
 
   test('add rejects impossible occurred_at calendar dates', async () => {
-    await expect(
+    expect(
       Effect.runPromise(
         addEntryProgram({
           text: 'Should fail',

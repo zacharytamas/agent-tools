@@ -88,7 +88,7 @@ describe('slog live Effect repository layer', () => {
       ),
     )
 
-    await expect(
+    expect(
       Effect.runPromise(showEntryProgram(fixedId).pipe(Effect.provide(layer))),
     ).rejects.toThrow('No entry exists with the supplied id.')
   })
@@ -105,7 +105,7 @@ describe('slog live Effect repository layer', () => {
       ),
     )
 
-    await expect(
+    expect(
       Effect.runPromise(
         Effect.gen(function* () {
           const repo = yield* EntryRepository
