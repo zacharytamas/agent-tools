@@ -98,7 +98,7 @@ slog entry show <full-ulid> --json
 
 Harness integrations must not parse human-oriented CLI output. Hermes, OpenCode, hooks, imports, and future adapters should use JSON-native machine commands so the human CLI remains free to improve its display without breaking integrations.
 
-Machine writers should provide `actor` and `authority` explicitly on create. Integration profiles may help identify the calling integration, locate config, or set safe defaults for the actor, but they should not silently imply human-delegated authority for arbitrary agent writes. A harness adapter is responsible for translating each native action into the correct authority mode: delegated when the user explicitly asked for the log write, discretionary when the agent chose to record something on its own, observed/imported for external system facts, and derived for generated synthesis.
+Machine writers should provide `actor` and `authority` explicitly on create. Integration profiles may help identify the calling integration, locate config, or set safe defaults for the actor, but they should not silently imply human-delegated authority for arbitrary agent writes. A harness plugin is responsible for translating each native action into the correct authority mode: delegated when the user explicitly asked for the log write, discretionary when the agent chose to record something on its own, observed/imported for external system facts, and derived for generated synthesis.
 
 Human UX commands may use local defaults because their operating context is narrower and interactive. Machine contracts should favor explicit provenance over convenience.
 
@@ -323,7 +323,7 @@ The update operation should locate the entry by full ULID, apply allowed changes
 
 ### Human edit workflow
 
-Human edit should remain scriptable and explicit in v1. The best-class experience for correcting or refining entries is expected to come through an agent adapter using the machine update contract. The direct human CLI should still be usable for scripting and simple manual corrections, but it should not grow an editor-driven workflow in v1.
+Human edit should remain scriptable and explicit in v1. The best-class experience for correcting or refining entries is expected to come through a harness plugin using the core API. The direct human CLI should still be usable for scripting and simple manual corrections, but it should not grow an editor-driven workflow in v1.
 
 V1 human edit commands should use inline flags:
 
@@ -737,7 +737,7 @@ The initial design should avoid prematurely committing to detailed shapes for ad
 
 Triage state must not be derived solely from authority. Authority describes why the entry should be treated as meaningful; triage describes whether the entry is settled enough for normal recall and summarization. A direct human-authored entry can still need triage if it was intentionally captured quickly or ambiguously for later cleanup. Conversely, some non-human-authority entries may be settled enough not to require triage.
 
-The initial `needs_triage` value should be computed by the CLI from central policy rather than left entirely to each caller or adapter. Callers may express intent, but the CLI remains responsible for applying guardrails consistently across harnesses.
+The initial `needs_triage` value should be computed by the slog core from central policy rather than left entirely to each caller or adapter. Callers may express intent, but the core remains responsible for applying guardrails consistently across harnesses.
 
 Default triage policy should be based primarily on `authority.mode`:
 

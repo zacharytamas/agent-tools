@@ -12,7 +12,7 @@ Define how slog entries should be converted into daily reports, handoffs, summar
 
 - How should direct and delegated entries be preserved differently from discretionary observations?
 - How should unresolved `needs_triage=true` entries affect report generation?
-- Should reporting live inside slog, in an agent adapter, or in a separate command layer?
+- Should reporting live inside slog, in a harness plugin, or in a separate command layer?
 - What output formats matter first: Slack update, plain Markdown, terminal summary, or something else?
 - How should source weighting and overclaiming prevention work?
 
