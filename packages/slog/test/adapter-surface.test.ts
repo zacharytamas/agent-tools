@@ -1,16 +1,4 @@
 import { expect, test } from 'bun:test'
-import {
-  AuthorityMode,
-  Authority,
-  Entry,
-  SlogError,
-  SlogLive,
-  createEntry,
-  deleteEntry,
-  findEntryById,
-  listEntries,
-  updateEntry,
-} from '@tools/slog'
 import type {
   CreateEntryAuthorityMode,
   CreateEntryInput,
@@ -22,6 +10,18 @@ import type {
   UpdateEntryInput,
   ValidationDetail,
   Warning,
+} from '@tools/slog'
+import {
+  Authority,
+  AuthorityMode,
+  createEntry,
+  deleteEntry,
+  Entry,
+  findEntryById,
+  listEntries,
+  SlogError,
+  SlogLive,
+  updateEntry,
 } from '@tools/slog'
 import { Effect, Layer } from 'effect'
 
