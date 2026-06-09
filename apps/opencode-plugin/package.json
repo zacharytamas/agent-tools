@@ -3,10 +3,18 @@
   "version": "0.1.0",
   "description": "My agent tools in an OpenCode native plugin format.",
   "private": false,
+  "scripts": {
+    "build": "bun build ./src/index.ts --target bun --outdir dist",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test"
+  },
   "devDependencies": {
+    "@effect/language-service": "^0.85.1",
     "@tools/typescript-config": "workspace:*"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.15.12"
+    "@opencode-ai/plugin": "^1.15.12",
+    "@tools/slog": "workspace:*",
+    "effect": "4.0.0-beta.70"
   }
 }
