@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-slog-plugin"
+version = "0.1.0"
+description = "Hermes plugin for slog integration"
+requires-python = ">=3.11"
+
+[project.entry-points."hermes_agent.plugins"]
+hermes-slog = "hermes_slog_plugin"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hermes_slog_plugin*"]
