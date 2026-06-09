@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { BunRuntime, BunServices } from '@effect/platform-bun'
-import { Console, Effect, Layer, Option } from 'effect'
+import { Console, Effect, Option } from 'effect'
 import { Argument, Command, Flag } from 'effect/unstable/cli'
 import {
   addCommandProgram,
@@ -18,15 +18,8 @@ import {
   triageCommandProgram,
 } from './cli-commands.js'
 import { SlogError } from './domain.js'
-import {
-  LiveClockLayer,
-  LiveIdGeneratorLayer,
-  LiveMachineInputLayer,
-  LiveSlogConfigLayer,
-} from './environment.js'
 import { renderHumanError } from './human.js'
-import { LivePartitionLockLayer } from './lock.js'
-import { LiveEntryRepositoryLayer } from './storage.js'
+import { SlogLive } from './live.js'
 
 const text = Argument.string('text')
 const id = Argument.string('id')
@@ -112,19 +105,6 @@ const app = Command.make('slog').pipe(
 )
 const cli = Command.run(app, { version: '0.1.0' })
 
-const LiveRepositoryWithConfigLayer = LiveEntryRepositoryLayer.pipe(
-  Layer.provideMerge(LivePartitionLockLayer),
-  Layer.provideMerge(LiveSlogConfigLayer),
-)
-
-const LiveLayer = Layer.mergeAll(
-  LiveSlogConfigLayer,
-  LiveClockLayer,
-  LiveIdGeneratorLayer,
-  LiveMachineInputLayer,
-  LiveRepositoryWithConfigLayer,
-).pipe(Layer.provideMerge(BunServices.layer))
-
 if (import.meta.main) {
   const duplicateJsonError = duplicateEntryJsonError(process.argv.slice(2))
 
@@ -142,7 +122,7 @@ if (import.meta.main) {
     )
   } else {
     cli.pipe(
-      Effect.provide(LiveLayer),
+      Effect.provide(SlogLive),
       Effect.catch((error) =>
         error instanceof SlogError
           ? Effect.gen(function* () {
