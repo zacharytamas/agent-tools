@@ -1,4 +1,4 @@
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import type { AuthorityMode, ValidationDetail } from './domain.js'
 import {
   Entry,
@@ -40,6 +40,8 @@ export interface MachineWarning {
   readonly code: string
   readonly message: string
 }
+
+export type Warning = MachineWarning
 
 export interface MachineEntryEnvelope {
   readonly entry: Entry
@@ -187,7 +189,10 @@ export const listEntries = Effect.fn('slog.listEntries')(function* (
   const now = yield* clock.now
   const range = filter.dateRange ?? { start: now, end: now }
   const entries = yield* repo.listByCreatedAtDateRange(range.start, range.end)
-  return entries.filter((entry) => entryMatchesFilter(entry, filter))
+  const matchingEntries: ReadonlyArray<Entry> = entries.filter((entry) =>
+    entryMatchesFilter(entry, filter),
+  )
+  return matchingEntries
 })
 
 export const deleteEntry = Effect.fn('slog.deleteEntry')(function* (
@@ -404,56 +409,57 @@ export const machineShowEntryProgram = Effect.fn('slog.machineShowEntry')(
   },
 )
 
-const buildTypedUpdatePatch = Effect.fn('slog.buildTypedUpdatePatch')(function* (
-  input: UpdateEntryInput,
-) {
-  const hasText = input.text !== undefined
-  const hasOccurredAt = input.occurredAt !== undefined
-  const hasNeedsTriage = input.needsTriage !== undefined
+const buildTypedUpdatePatch = Effect.fn('slog.buildTypedUpdatePatch')(
+  function* (input: UpdateEntryInput) {
+    const hasText = input.text !== undefined
+    const hasOccurredAt = input.occurredAt !== undefined
+    const hasNeedsTriage = input.needsTriage !== undefined
 
-  if (!(hasText || hasOccurredAt || hasNeedsTriage)) {
-    return yield* Effect.fail(
-      new SlogError(
-        'validation_failed',
-        'updateEntry requires at least one of text, occurredAt, or needsTriage.',
-      ),
-    )
-  }
+    if (!(hasText || hasOccurredAt || hasNeedsTriage)) {
+      return yield* Effect.fail(
+        new SlogError(
+          'validation_failed',
+          'updateEntry requires at least one of text, occurredAt, or needsTriage.',
+        ),
+      )
+    }
 
-  yield* Effect.try({
-    try: () => validateFullUlid(input.id),
-    catch: normalizeSlogError,
-  })
-
-  let patch: EntryPatch = {}
-
-  const inputText = input.text
-  if (inputText !== undefined) {
-    const text = yield* Effect.try({
-      try: () => validateText(inputText),
+    yield* Effect.try({
+      try: () => validateFullUlid(input.id),
       catch: normalizeSlogError,
     })
-    patch = { ...patch, text }
-  }
 
-  if ('occurredAt' in input) {
-    if (input.occurredAt === null) {
-      patch = { ...patch, occurred_at: null }
-    } else if (input.occurredAt !== undefined) {
-      const occurredAt = yield* Effect.try({
-        try: () => validateOffsetTimestamp(input.occurredAt as string, 'occurredAt'),
+    let patch: EntryPatch = {}
+
+    const inputText = input.text
+    if (inputText !== undefined) {
+      const text = yield* Effect.try({
+        try: () => validateText(inputText),
         catch: normalizeSlogError,
       })
-      patch = { ...patch, occurred_at: occurredAt }
+      patch = { ...patch, text }
     }
-  }
 
-  if (input.needsTriage !== undefined) {
-    patch = { ...patch, needs_triage: input.needsTriage }
-  }
+    if ('occurredAt' in input) {
+      if (input.occurredAt === null) {
+        patch = { ...patch, occurred_at: null }
+      } else if (input.occurredAt !== undefined) {
+        const occurredAt = yield* Effect.try({
+          try: () =>
+            validateOffsetTimestamp(input.occurredAt as string, 'occurredAt'),
+          catch: normalizeSlogError,
+        })
+        patch = { ...patch, occurred_at: occurredAt }
+      }
+    }
 
-  return patch
-})
+    if (input.needsTriage !== undefined) {
+      patch = { ...patch, needs_triage: input.needsTriage }
+    }
+
+    return patch
+  },
+)
 
 const buildHumanEditPatch = Effect.fn('slog.buildHumanEditPatch')(function* (
   options: EditEntryOptions,
@@ -542,6 +548,7 @@ function entryMatchesFilter(entry: Entry, filter: EntryFilter): boolean {
   return true
 }
 
+// Fails with entry_not_found on miss. See findEntryById for the Option<Entry> variant that returns None on miss instead.
 const findEntryByFullId = Effect.fn('slog.findEntryByFullId')(function* (
   id: string,
 ) {
@@ -561,6 +568,18 @@ const findEntryByFullId = Effect.fn('slog.findEntryByFullId')(function* (
     )
   }
   return entry
+})
+
+export const findEntryById = Effect.fn('slog.findEntryById')(function* (
+  id: string,
+) {
+  const repo = yield* EntryRepository
+  const fullId = yield* Effect.try({
+    try: () => validateFullUlid(id),
+    catch: normalizeSlogError,
+  })
+  const entry = yield* repo.findById(fullId)
+  return entry !== undefined ? Option.some(entry) : Option.none()
 })
 
 function parseMachineCreatePayload(payloadText: string): MachineCreatePayload {
