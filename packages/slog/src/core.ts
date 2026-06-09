@@ -245,25 +245,22 @@ export const machineCreateEntryProgram = Effect.fn('slog.machineCreateEntry')(
       try: () => parseMachineCreatePayload(payloadText),
       catch: normalizeSlogError,
     })
+
+    if (payload.authority.mode !== 'direct') {
+      return yield* createEntry({
+        text: payload.text,
+        actor: payload.actor,
+        authorityMode: payload.authority.mode as CreateEntryAuthorityMode,
+        authoritySource: payload.authority.source,
+        occurredAt: payload.occurred_at,
+        needsTriage: payload.needs_triage ?? true,
+      })
+    }
+
     const clock = yield* FixedClock
     const ids = yield* IdGenerator
     const repo = yield* EntryRepository
     const now = yield* clock.now
-    const warnings: MachineWarning[] = []
-    let needsTriage = payload.needs_triage ?? true
-
-    if (
-      needsTriage === false &&
-      payload.authority.mode !== 'direct' &&
-      payload.authority.mode !== 'delegated'
-    ) {
-      needsTriage = true
-      warnings.push({
-        code: 'needs_triage_forced',
-        message: 'Only direct and delegated entries may be created as settled.',
-      })
-    }
-
     const entry = new Entry({
       id: validateFullUlid(yield* ids.next(now)),
       created_at: formatLocalIso(now),
@@ -273,11 +270,11 @@ export const machineCreateEntryProgram = Effect.fn('slog.machineCreateEntry')(
       text: payload.text,
       actor: payload.actor,
       authority: payload.authority,
-      needs_triage: needsTriage,
+      needs_triage: payload.needs_triage ?? true,
     })
 
     yield* repo.append(entry)
-    return { entry, warnings }
+    return { entry, warnings: [] }
   },
 )
 
@@ -295,9 +292,16 @@ export const machineUpdateEntryProgram = Effect.fn('slog.machineUpdateEntry')(
       try: () => parseMachineUpdatePayload(payloadText),
       catch: normalizeSlogError,
     })
-    const repo = yield* EntryRepository
-    const entry = yield* repo.updateExisting(payload.id, payload.patch)
-    return { entry, warnings: [] }
+    return yield* updateEntry({
+      id: payload.id,
+      ...(payload.patch.text !== undefined ? { text: payload.patch.text } : {}),
+      ...('occurred_at' in payload.patch
+        ? { occurredAt: payload.patch.occurred_at }
+        : {}),
+      ...(payload.patch.needs_triage !== undefined
+        ? { needsTriage: payload.patch.needs_triage }
+        : {}),
+    })
   },
 )
 
