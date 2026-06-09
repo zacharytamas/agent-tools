@@ -2,6 +2,7 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@tools/typescript-config/base",
   "compilerOptions": {
+    "rootDir": ".",
     "outDir": "dist",
     "plugins": [{ "name": "@effect/language-service" }]
   },

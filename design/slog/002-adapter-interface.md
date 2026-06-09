@@ -6,7 +6,7 @@ Design resolved. Ready for implementation.
 
 ## Purpose
 
-Define the slog core API — the programmatic boundary shared by all clients. The CLI is one such client; Hermes, OpenCode, hooks, imports, and future harnesses are additional clients. All clients share the same entry model, authority semantics, and guardrails defined in `001-establishment.md`, but they interact with those primitives through this core API rather than directly with storage.
+Define the slog core API, which is the programmatic boundary shared by all clients. The CLI is one such client; Hermes, OpenCode, hooks, imports, and future harnesses are additional clients. All clients share the same entry model, authority semantics, and guardrails defined in `001-establishment.md`, but they interact with those primitives through this core API rather than directly with storage.
 
 Harness-specific concerns (e.g., how a Hermes tool schema maps to `createEntry` parameters, or how OpenCode surfaces a log function) are out of scope. They belong in separate harness plugin design documents.
 
@@ -16,15 +16,15 @@ Terms used in this document are defined in `CONTEXT.md`.
 
 ## Boundary: the core API
 
-The slog core exposes a typed programmatic API implemented as Effect functions in `packages/slog/src/core.ts`. All business logic — validation, guardrails, storage orchestration, and atomic partition rewrites — lives in the core. Clients import from it and translate results into their native protocols.
+The slog core exposes a typed programmatic API implemented as Effect functions in `packages/slog/src/core.ts`. All business logic, including validation, guardrails, storage orchestration, and atomic partition rewrites, lives in the core. Clients import from it and translate results into their native protocols.
 
 What the core provides:
 
-- `createEntry` — create a new entry with validated provenance and applied guardrails
-- `updateEntry` — update an existing entry's mutable fields
-- `findEntryById` — retrieve a single entry by full ULID
-- `listEntries` — query entries with optional filters
-- `deleteEntry` — hard delete an entry (reserved/unstable for v1 harness plugins)
+- `createEntry`: create a new entry with validated provenance and applied guardrails
+- `updateEntry`: update an existing entry's mutable fields
+- `findEntryById`: retrieve a single entry by full ULID
+- `listEntries`: query entries with optional filters
+- `deleteEntry`: hard delete an entry (reserved/unstable for v1 harness plugins)
 
 What the core does **not** provide:
 
@@ -39,7 +39,7 @@ The CLI machine contract defined in `001-establishment.md` (`slog entry create|u
 
 ### Origin is the report-bearing axis, carried by `authority.mode`
 
-An entry's *origin* — interactive (captured live in a human session), automated (script/hook/import), or synthetic (generated from other entries) — is the axis downstream reporting weights on. It is derived from `authority.mode`, not from `actor` strings and not from a new field:
+An entry's *origin*, whether interactive (captured live in a human session), automated (script/hook/import), or synthetic (generated from other entries), is the axis downstream reporting weights on. It is derived from `authority.mode`, not from `actor` strings and not from a new field:
 
 - **interactive:** `direct`, `delegated`, `discretionary`
 - **automated:** `observed`, `imported`
@@ -51,9 +51,9 @@ Reporting (`003`) treats interactive entries as the high-relevance spine and aut
 
 An entry may be stamped `delegated` only when all three hold:
 
-1. **Explicit log intent** — the user's words in the current turn ask for an entry to be recorded ("log that…", "note…", "add to slog…"), not merely that the user did something loggable.
-2. **Same-turn traceability** — the instruction is in the current user turn, not inferred from session history or a standing rule.
-3. **Content fidelity** — the entry records what the user asked to log. Agent embellishment beyond that intent is `discretionary`, not `delegated`.
+1. **Explicit log intent**: the user's words in the current turn ask for an entry to be recorded ("log that…", "note…", "add to slog…"), not merely that the user did something loggable.
+2. **Same-turn traceability**: the instruction is in the current user turn, not inferred from session history or a standing rule.
+3. **Content fidelity**: the entry records what the user asked to log. Agent embellishment beyond that intent is `discretionary`, not `delegated`.
 
 Anything failing the gate is `discretionary`. **On any ambiguity, the harness plugin must drop to `discretionary`.**
 
@@ -82,8 +82,8 @@ The core does not maintain a registry of allowed actors. It accepts any string t
 When fields are omitted from `createEntry` input, the core applies the following defaults:
 
 - `authority.source`: **`actor`** (the harness plugin's identity)
-- `occurred_at`: **omitted** — the entry describes something happening at or near creation time. Set only when a reliable external event time is available.
-- `needs_triage`: **omitted (let core apply default policy)** — non-`direct`/`delegated` modes are forced to `true` by the core guardrail regardless of caller intent.
+- `occurred_at`: **omitted**, meaning the entry describes something happening at or near creation time. Set only when a reliable external event time is available.
+- `needs_triage`: **omitted (let core apply default policy)**, where non-`direct`/`delegated` modes are forced to `true` by the core guardrail regardless of caller intent.
 
 No trust-policy configuration, timezone overrides, or adapter-profile configuration is introduced in v1.
 
@@ -92,57 +92,73 @@ No trust-policy configuration, timezone overrides, or adapter-profile configurat
 ### Types
 
 ```ts
-type AuthorityMode = 'delegated' | 'discretionary' | 'observed' | 'imported'
+type AuthorityMode =
+  | 'direct'
+  | 'delegated'
+  | 'discretionary'
+  | 'observed'
+  | 'imported'
+  | 'derived'
+
+type CreateEntryAuthorityMode =
+  | 'delegated'
+  | 'discretionary'
+  | 'observed'
+  | 'imported'
 
 interface CreateEntryInput {
-  text: string
-  actor: string                    // e.g. 'hermes:hightower', 'github-hook'
-  authorityMode: AuthorityMode     // direct is structurally excluded
-  authoritySource?: string         // defaults to actor if omitted
-  occurredAt?: string              // ISO 8601 with explicit offset
-  needsTriage?: boolean            // intent only; guardrails may override
+  readonly text: string
+  readonly actor: string
+  readonly authorityMode: CreateEntryAuthorityMode
+  readonly authoritySource?: string
+  readonly occurredAt?: string
+  readonly needsTriage?: boolean
 }
 
 interface UpdateEntryInput {
-  id: string
-  text?: string
-  occurredAt?: string | null      // null clears the field
-  needsTriage?: boolean
+  readonly id: string
+  readonly text?: string
+  readonly occurredAt?: string | null
+  readonly needsTriage?: boolean
 }
 
 interface EntryFilter {
-  dateRange?: { start: Date; end: Date }
-  needsTriage?: boolean
-  actor?: string
-  authoritySource?: string
-  authorityMode?: AuthorityMode
-  textQuery?: string               // case-insensitive substring
+  readonly dateRange?: { readonly start: Date; readonly end: Date }
+  readonly needsTriage?: boolean
+  readonly actor?: string
+  readonly authoritySource?: string
+  readonly authorityMode?: AuthorityMode
+  readonly textQuery?: string
 }
 
-interface Warning {
-  code: string
-  message: string
+interface MachineWarning {
+  readonly code: string
+  readonly message: string
 }
+
+type Warning = MachineWarning
 ```
+
+The `Warning` type is exported as `MachineWarning` with a `Warning` alias, making both names available to clients.
 
 ### Functions
 
 ```ts
 function createEntry(
   input: CreateEntryInput
-): Effect.Effect<{ entry: Entry; warnings: ReadonlyArray<Warning> }, SlogError>
+): Effect.Effect<{ readonly entry: Entry; readonly warnings: ReadonlyArray<Warning> }, SlogError>
 
 function updateEntry(
   input: UpdateEntryInput
-): Effect.Effect<{ entry: Entry; warnings: ReadonlyArray<Warning> }, SlogError>
+): Effect.Effect<{ readonly entry: Entry; readonly warnings: ReadonlyArray<Warning> }, SlogError>
 
 function findEntryById(
   id: string
-): Effect.Effect<Option<Option<Entry>>, SlogError>
+): Effect.Effect<Option.Option<Entry>, SlogError>
 
 function listEntries(
   filter?: EntryFilter
-): Effect.Effect<ReadonlyArray<ReadonlyArray<Entry>>, SlogError>
+): Effect.Effect<ReadonlyArray<Entry>, SlogError>
 
 function deleteEntry(
   id: string
