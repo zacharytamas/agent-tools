@@ -101,7 +101,7 @@ def test_non_zero_exit_captures_stderr(isolated_slog_home, fake_slog_factory):
         adapter.list()
 
     error = exc_info.value
-    assert error.code == "slog_non_zero_exit"
+    assert error.code == "slog_failed"
     assert error.returncode == 17
     assert error.stderr == "slog exploded"
 
@@ -117,7 +117,7 @@ def test_malformed_json_is_structured_parse_failure(
         adapter.list()
 
     error = exc_info.value
-    assert error.code == "slog_invalid_json"
+    assert error.code == "slog_bad_json"
     assert error.stdout == "not-json"
 
 
