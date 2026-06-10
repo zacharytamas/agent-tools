@@ -43,9 +43,17 @@ class RecordingPluginContext:
         raise AssertionError(f"unexpected registration surface: {name}")
 
 
-class RegisteredReadAdapter:
+class RegisteredAdapter:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, str | None]] = []
+        self.calls: list[tuple[str, object]] = []
+
+    def create(self, payload):
+        self.calls.append(("create", payload))
+        return {"entry": {"id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"}, "warnings": []}
+
+    def update(self, payload):
+        self.calls.append(("update", payload))
+        return {"entry": {"id": payload["id"]}, "warnings": []}
 
     def find(self, entry_id: str):
         self.calls.append(("find", entry_id))
@@ -84,15 +92,28 @@ def test_registered_handlers_accept_hermes_dispatch_kwargs():
 
     assert len(ctx.tools) == 4
 
-    adapter = RegisteredReadAdapter()
+    adapter = RegisteredAdapter()
 
     for tool in ctx.tools:
         call_kwargs = {
             "task_id": "task-1",
             "user_task": "capture this work",
+            "profile_identity": "researcher",
+            "get_session_env": lambda _name, default="": default,
             "future_unknown_kwarg": "ignored",
         }
-        if tool.name == "slog_find":
+        if tool.name == "slog_log":
+            result = tool.handler({"text": "hello"}, adapter=adapter, **call_kwargs)
+            assert result == {
+                "ok": True,
+                "code": "ok",
+                "message": "slog entry created.",
+                "metadata": {
+                    "entry": {"id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+                    "warnings": [],
+                },
+            }
+        elif tool.name == "slog_find":
             result = tool.handler(
                 {"id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"}, adapter=adapter, **call_kwargs
             )
@@ -115,9 +136,21 @@ def test_registered_handlers_accept_hermes_dispatch_kwargs():
                     }
                 },
             }
-        else:
-            result = tool.handler({}, **call_kwargs)
-            assert set(result) == {"ok", "code", "message", "metadata"}
-            assert result["ok"] is False
-            assert result["code"] == "not_implemented"
-            assert result["metadata"]["tool"] == tool.name
+        elif tool.name == "slog_correct":
+            result = tool.handler(
+                {
+                    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "changes": {"text": "updated"},
+                },
+                adapter=adapter,
+                **call_kwargs,
+            )
+            assert result == {
+                "ok": True,
+                "code": "ok",
+                "message": "slog entry updated.",
+                "metadata": {
+                    "entry": {"id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+                    "warnings": [],
+                },
+            }
