@@ -41,8 +41,12 @@ def resolve_provenance(
     metadata = _metadata_for_task(normalized_user_task, task_id)
 
     session_env = get_session_env or _get_session_env
-    user_id = _normalize(session_env("HERMES_SESSION_USER_ID", ""))
-    user_name = _normalize(session_env("HERMES_SESSION_USER_NAME", ""))
+    user_id = _session_env_value(
+        session_env, "HERMES_SESSION_USER_ID", warnings
+    )
+    user_name = _session_env_value(
+        session_env, "HERMES_SESSION_USER_NAME", warnings
+    )
     if user_id is not None:
         metadata["session_user_id"] = user_id
     if user_name is not None:
@@ -71,6 +75,26 @@ def resolve_provenance(
         warnings=warnings,
         metadata=metadata,
     )
+
+
+def _session_env_value(
+    get_session_env: SessionEnvGetter,
+    name: str,
+    warnings: list[dict[str, str]],
+) -> str | None:
+    try:
+        return _normalize(get_session_env(name, ""))
+    except Exception:
+        if not any(
+            warning["code"] == "session_env_unavailable" for warning in warnings
+        ):
+            warnings.append(
+                {
+                    "code": "session_env_unavailable",
+                    "message": "Hermes session context was not readable; continuing without session user fields.",
+                }
+            )
+        return None
 
 
 def _metadata_for_task(user_task: str | None, task_id: str | None) -> dict[str, str]:
