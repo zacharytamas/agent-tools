@@ -4,6 +4,7 @@ from typing import Any, Mapping
 
 from .results import error_result
 from .schemas import get_tool_schemas
+from .read_tools import slog_find, slog_list
 
 TOOLSET = "plugin_hermes_slog"
 
@@ -23,9 +24,13 @@ def _placeholder_handler(tool_name: str):
 def register(ctx: Any) -> None:
     for schema in get_tool_schemas():
         tool_name = schema["name"]
+        handler = {
+            "slog_list": slog_list,
+            "slog_find": slog_find,
+        }.get(tool_name, _placeholder_handler(tool_name))
         ctx.register_tool(
             name=tool_name,
             toolset=TOOLSET,
             schema=schema,
-            handler=_placeholder_handler(tool_name),
+            handler=handler,
         )
